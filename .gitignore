@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Build directory
+build/
+
+# Qt Creator user files
+.qtcreator/
+*.user
+*.autogen
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
