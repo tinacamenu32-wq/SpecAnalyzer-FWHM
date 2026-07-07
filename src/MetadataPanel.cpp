@@ -74,13 +74,16 @@ void MetadataPanel::setupUi()
     separator2->setFrameShadow(QFrame::Sunken);
     outerLayout->addWidget(separator2);
 
-    // 谱线选择
+    // 检测到的峰数量提示
+    m_lblPeakCount = new QLabel("未检测到峰值", contentWidget);
+    m_lblPeakCount->setStyleSheet("color: #5f6368; font-size: 11px;");
+    outerLayout->addWidget(m_lblPeakCount);
+
+    // 谱线选择（由自动检测的峰值填充）
     auto *lineLayout = new QHBoxLayout();
     auto *lblLine = new QLabel("目标谱线:", contentWidget);
     m_cmbLine = new QComboBox(contentWidget);
-    for (const auto &def : SpectralAnalyzer::predefinedLines()) {
-        m_cmbLine->addItem(def.label, def.wavelength);
-    }
+    m_cmbLine->setMinimumWidth(200);
     lineLayout->addWidget(lblLine);
     lineLayout->addWidget(m_cmbLine, 1);
     outerLayout->addLayout(lineLayout);
@@ -108,7 +111,7 @@ void MetadataPanel::setupUi()
     resultForm->addRow("峰值强度:",  m_lblPeakInt);
     resultForm->addRow("半峰全宽:",  m_lblFwhm);
     resultForm->addRow("半峰强度:",  m_lblHalfPeak);
-    resultForm->addRow("FWHM×半峰:", m_lblResult);
+    resultForm->addRow("半高宽:", m_lblResult);
 
     outerLayout->addLayout(resultForm);
     outerLayout->addStretch();
@@ -127,8 +130,49 @@ void MetadataPanel::setupUi()
 void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
 {
     m_spectrumPoints = points;
-    // 如果之前选过谱线，自动重新计算
-    if (m_cmbLine->currentIndex() >= 0 && !m_spectrumPoints.isEmpty()) {
+
+    // 断开信号避免填充过程中触发计算
+    m_cmbLine->blockSignals(true);
+    m_cmbLine->clear();
+
+    if (points.isEmpty()) {
+        m_detectedPeaks.clear();
+        m_lblPeakCount->setText("无光谱数据");
+        m_cmbLine->blockSignals(false);
+        return;
+    }
+
+    // 自动检测所有峰值
+    m_detectedPeaks = SpectralAnalyzer::detectPeaks(points);
+
+    if (m_detectedPeaks.isEmpty()) {
+        m_lblPeakCount->setText("未检测到显著峰值");
+        m_cmbLine->blockSignals(false);
+        // 清除结果显示
+        m_lblPeakWl->setText("-");
+        m_lblPeakInt->setText("-");
+        m_lblFwhm->setText("-");
+        m_lblHalfPeak->setText("-");
+        m_lblResult->setText("-");
+        return;
+    }
+
+    // 填充下拉框：显示波长 + 强度概览
+    for (int i = 0; i < m_detectedPeaks.size(); ++i) {
+        const auto &p = m_detectedPeaks[i];
+        QString text = QString("%1 nm  (强度: %2)")
+                           .arg(p.wavelength, 8, 'f', 2)
+                           .arg(p.intensity, 0, 'f', 0);
+        m_cmbLine->addItem(text, i);  // 存储峰值在 m_detectedPeaks 中的索引
+    }
+
+    m_lblPeakCount->setText(QString("自动检测到 %1 个峰值").arg(m_detectedPeaks.size()));
+
+    m_cmbLine->blockSignals(false);
+
+    // 自动选中第一个（波长最小），触发计算
+    if (m_cmbLine->count() > 0) {
+        m_cmbLine->setCurrentIndex(0);
         calculateAndDisplay();
     }
 }
@@ -161,6 +205,13 @@ void MetadataPanel::clear()
     m_lblTriggerMode->setText("-");
     m_lblTriggerDelay->setText("-");
 
+    // 清除峰值列表
+    m_cmbLine->blockSignals(true);
+    m_cmbLine->clear();
+    m_cmbLine->blockSignals(false);
+    m_detectedPeaks.clear();
+    m_lblPeakCount->setText("未检测到峰值");
+
     // 清除分析结果
     m_lblPeakWl->setText("-");
     m_lblPeakInt->setText("-");
@@ -173,24 +224,25 @@ void MetadataPanel::clear()
 
 void MetadataPanel::onLineSelected(int /*index*/)
 {
-    if (!m_spectrumPoints.isEmpty()) {
+    if (!m_spectrumPoints.isEmpty() && !m_detectedPeaks.isEmpty()) {
         calculateAndDisplay();
     }
 }
 
 void MetadataPanel::calculateAndDisplay()
 {
-    if (m_spectrumPoints.isEmpty()) {
+    if (m_spectrumPoints.isEmpty() || m_detectedPeaks.isEmpty()) {
         return;
     }
 
-    int idx = m_cmbLine->currentIndex();
-    if (idx < 0) return;
+    int comboIdx = m_cmbLine->currentIndex();
+    if (comboIdx < 0) return;
 
-    double targetWl = m_cmbLine->currentData().toDouble();
-    QString label = m_cmbLine->currentText();
+    int peakIdx = m_cmbLine->currentData().toInt();
+    if (peakIdx < 0 || peakIdx >= m_detectedPeaks.size()) return;
 
-    m_lastResult = SpectralAnalyzer::analyze(m_spectrumPoints, targetWl, label);
+    const DetectedPeak &peak = m_detectedPeaks[peakIdx];
+    m_lastResult = SpectralAnalyzer::analyzePeak(m_spectrumPoints, peak);
 
     if (m_lastResult.valid) {
         m_lblPeakWl->setText(QString("%1 nm").arg(m_lastResult.foundPeakWl, 0, 'f', 2));

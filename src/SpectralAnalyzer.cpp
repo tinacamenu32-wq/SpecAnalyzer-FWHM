@@ -16,6 +16,179 @@ const QVector<SpectralAnalyzer::LineDef> &SpectralAnalyzer::predefinedLines()
     return lines;
 }
 
+// ========== 自动峰值检测 ==========
+
+QVector<DetectedPeak> SpectralAnalyzer::detectPeaks(const QVector<QPointF> &points,
+                                                      double minProminence,
+                                                      int neighborhoodSize)
+{
+    QVector<DetectedPeak> peaks;
+    const int n = points.size();
+    if (n < 2 * neighborhoodSize + 1) return peaks;
+
+    // ---- 自动计算最小显著度阈值 ----
+    if (minProminence <= 0.0) {
+        double maxInt = 0.0;
+        for (const auto &p : points) {
+            if (p.y() > maxInt) maxInt = p.y();
+        }
+        // 默认：最大强度的 2%
+        minProminence = maxInt * 0.02;
+        if (minProminence < 1e-12) minProminence = 1e-12;
+    }
+
+    // ---- 第 1 步：找出所有局部极大值 ----
+    for (int i = neighborhoodSize; i < n - neighborhoodSize; ++i) {
+        double yi = points[i].y();
+        bool isMax = true;
+        for (int j = i - neighborhoodSize; j <= i + neighborhoodSize; ++j) {
+            if (j == i) continue;
+            if (points[j].y() >= yi) {
+                isMax = false;
+                break;
+            }
+        }
+        if (isMax) {
+            DetectedPeak p;
+            p.wavelength = points[i].x();
+            p.intensity  = yi;
+            p.prominence = 0.0;
+            p.index      = i;
+            peaks.append(p);
+        }
+    }
+
+    if (peaks.isEmpty()) return peaks;
+
+    // ---- 第 2 步：计算每个峰的 Topographic Prominence ----
+    // 先按索引排序
+    std::sort(peaks.begin(), peaks.end(),
+              [](const DetectedPeak &a, const DetectedPeak &b) { return a.index < b.index; });
+
+    for (int pi = 0; pi < peaks.size(); ++pi) {
+        DetectedPeak &peak = peaks[pi];
+
+        // 左侧边界：左边第一个比当前峰更高的峰，或数据起点
+        int leftBoundary = 0;
+        for (int j = pi - 1; j >= 0; --j) {
+            if (peaks[j].intensity > peak.intensity) {
+                leftBoundary = peaks[j].index;
+                break;
+            }
+        }
+
+        // 右侧边界：右边第一个比当前峰更高的峰，或数据终点
+        int rightBoundary = n - 1;
+        for (int j = pi + 1; j < peaks.size(); ++j) {
+            if (peaks[j].intensity > peak.intensity) {
+                rightBoundary = peaks[j].index;
+                break;
+            }
+        }
+
+        peak.prominence = computeProminence(points, peak.index, leftBoundary, rightBoundary);
+    }
+
+    // ---- 第 3 步：按显著度过滤 ----
+    QVector<DetectedPeak> filtered;
+    for (const auto &p : peaks) {
+        if (p.prominence >= minProminence) {
+            filtered.append(p);
+        }
+    }
+
+    // ---- 第 4 步：按波长升序排列 ----
+    std::sort(filtered.begin(), filtered.end(),
+              [](const DetectedPeak &a, const DetectedPeak &b) { return a.wavelength < b.wavelength; });
+
+    return filtered;
+}
+
+double SpectralAnalyzer::computeProminence(const QVector<QPointF> &points,
+                                            int peakIdx,
+                                            int leftBoundary,
+                                            int rightBoundary)
+{
+    double leftMin  = points[peakIdx].y();
+    double rightMin = points[peakIdx].y();
+
+    for (int i = leftBoundary; i <= peakIdx; ++i) {
+        if (points[i].y() < leftMin) leftMin = points[i].y();
+    }
+    for (int i = peakIdx; i <= rightBoundary; ++i) {
+        if (points[i].y() < rightMin) rightMin = points[i].y();
+    }
+
+    double referenceHeight = std::max(leftMin, rightMin);
+    return points[peakIdx].y() - referenceHeight;
+}
+
+// ========== 对检测到的峰计算 FWHM ==========
+
+void SpectralAnalyzer::findValleyBounds(const QVector<QPointF> &points,
+                                         int peakIdx,
+                                         int &leftBound,
+                                         int &rightBound)
+{
+    const int n = points.size();
+    leftBound  = 0;
+    rightBound = n - 1;
+
+    // 向左找谷底
+    for (int i = peakIdx - 1; i > 1; --i) {
+        if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
+            leftBound = i;
+            break;
+        }
+    }
+
+    // 向右找谷底
+    for (int i = peakIdx + 1; i < n - 1; ++i) {
+        if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
+            rightBound = i;
+            break;
+        }
+    }
+}
+
+SpectralLineResult SpectralAnalyzer::analyzePeak(const QVector<QPointF> &points,
+                                                   const DetectedPeak &peak)
+{
+    SpectralLineResult result;
+    result.label         = QString("%1 nm").arg(peak.wavelength, 0, 'f', 2);
+    result.targetWl      = peak.wavelength;
+    result.foundPeakWl   = peak.wavelength;
+    result.peakIntensity = peak.intensity;
+    result.halfMax       = peak.intensity / 2.0;
+
+    if (points.isEmpty() || peak.index < 0 || peak.index >= points.size()) {
+        result.errorMsg = QStringLiteral("无效的峰值索引");
+        return result;
+    }
+
+    // 找到峰两侧的谷底边界
+    int leftBound, rightBound;
+    findValleyBounds(points, peak.index, leftBound, rightBound);
+
+    // 在谷底范围内搜索半峰穿越点
+    double leftWl  = findHalfCrossing(points, leftBound, peak.index,     result.halfMax, -1);
+    double rightWl = findHalfCrossing(points, peak.index,   rightBound,  result.halfMax,  1);
+
+    // 找不到半峰穿越点时，用谷底横坐标兜底
+    if (leftWl < 0)
+        leftWl = points[leftBound].x();
+    if (rightWl < 0)
+        rightWl = points[rightBound].x();
+
+    result.fwhm          = rightWl - leftWl;
+    result.computedValue = result.fwhm * result.halfMax;  // FWHM × (peak/2)
+    result.valid         = true;
+
+    return result;
+}
+
+// ========== 兼容旧接口：在目标波长窗口内分析 ==========
+
 SpectralLineResult SpectralAnalyzer::analyze(const QVector<QPointF> &points,
                                               double targetWl,
                                               const QString &label,
@@ -26,7 +199,7 @@ SpectralLineResult SpectralAnalyzer::analyze(const QVector<QPointF> &points,
     result.targetWl = targetWl;
 
     if (points.isEmpty()) {
-        result.errorMsg = "光谱数据为空";
+        result.errorMsg = QStringLiteral("光谱数据为空");
         return result;
     }
 
@@ -63,9 +236,7 @@ SpectralLineResult SpectralAnalyzer::analyze(const QVector<QPointF> &points,
     result.halfMax       = peakInt / 2.0;
 
     // 3. 找半峰全宽 (FWHM)
-    // 左侧半峰波长：从 peak 向左搜索
     double leftWl = findHalfCrossing(points, startIdx, peakIdx, result.halfMax, -1);
-    // 右侧半峰波长：从 peak 向右搜索
     double rightWl = findHalfCrossing(points, peakIdx, endIdx, result.halfMax, 1);
 
     if (leftWl < 0 || rightWl < 0) {
@@ -81,23 +252,20 @@ SpectralLineResult SpectralAnalyzer::analyze(const QVector<QPointF> &points,
     return result;
 }
 
+// ========== 半峰穿越点查找 ==========
+
 double SpectralAnalyzer::findHalfCrossing(const QVector<QPointF> &points,
                                            int startIdx, int endIdx,
                                            double halfValue,
                                            int direction)
 {
-    // direction: -1 = 向左搜索, +1 = 向右搜索
-    // 在 startIdx..endIdx 范围内找强度穿越 halfValue 的位置
-
     if (direction < 0) {
         // 向左：从 endIdx 向 startIdx 搜索
         for (int i = endIdx; i > startIdx; --i) {
             double y1 = points[i - 1].y();
             double y2 = points[i].y();
-            // 检查是否穿过 halfValue
             if ((y1 <= halfValue && y2 >= halfValue) ||
                 (y1 >= halfValue && y2 <= halfValue)) {
-                // 线性插值
                 double x1 = points[i - 1].x();
                 double x2 = points[i].x();
                 if (std::abs(y2 - y1) < 1e-12)

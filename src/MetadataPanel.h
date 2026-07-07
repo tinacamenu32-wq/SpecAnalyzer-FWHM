@@ -21,8 +21,11 @@ public:
                      const QString &fileName,
                      int dataPointCount);
 
-    /// 设置当前光谱数据（用于谱线分析计算）
+    /// 设置当前光谱数据（自动检测峰值并填充下拉框）
     void setSpectrumPoints(const QVector<QPointF> &points);
+
+    /// 获取当前检测到的所有峰值
+    const QVector<DetectedPeak> &detectedPeaks() const { return m_detectedPeaks; }
 
     void clear();
 
@@ -45,6 +48,7 @@ private:
     QLabel *m_lblTriggerDelay   = nullptr;
 
     // --- 谱线分析 ---
+    QLabel    *m_lblPeakCount = nullptr;  // 检测到的峰数量
     QComboBox *m_cmbLine      = nullptr;
     QLabel    *m_lblPeakWl    = nullptr;
     QLabel    *m_lblPeakInt   = nullptr;
@@ -53,6 +57,7 @@ private:
     QLabel    *m_lblResult    = nullptr;
 
     // --- 数据 ---
-    QVector<QPointF> m_spectrumPoints;
-    SpectralLineResult m_lastResult;
+    QVector<QPointF>      m_spectrumPoints;
+    QVector<DetectedPeak>  m_detectedPeaks;
+    SpectralLineResult     m_lastResult;
 };

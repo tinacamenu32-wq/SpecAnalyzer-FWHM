@@ -42,8 +42,8 @@ void MainWindow::setupUi()
 
     m_rightSplitter->addWidget(m_chartView);
     m_rightSplitter->addWidget(m_metadataPanel);
-    m_rightSplitter->setStretchFactor(0, 7); // 图表占 70%
-    m_rightSplitter->setStretchFactor(1, 3); // 元数据占 30%
+    m_rightSplitter->setStretchFactor(0, 85); // 图表占 85%
+    m_rightSplitter->setStretchFactor(1, 15); // 元数据占 15%
 
     // 组装到大 splitter
     m_mainSplitter->addWidget(m_fileListPanel);
@@ -210,33 +210,32 @@ void MainWindow::onExportResults()
     // 选择保存位置
     QString savePath = QFileDialog::getSaveFileName(
         this,
-        "导出谱线分析结果",
+        "导出所有峰值 FWHM 分析结果",
         QString(),
         "CSV 文件 (*.csv)");
     if (savePath.isEmpty())
         return;
 
     // 进度对话框
-    QProgressDialog progress("正在分析谱线...", "取消", 0, filePaths.size(), this);
+    QProgressDialog progress("正在分析峰值...", "取消", 0, filePaths.size(), this);
     progress.setWindowModality(Qt::WindowModal);
     progress.setMinimumDuration(0);
 
-    // 获取预定义谱线列表
-    const auto &lines = SpectralAnalyzer::predefinedLines();
-
-    // 构建 CSV 内容
+    // 构建 CSV 内容（宽格式：每文件一行，列 = 各峰波长+FWHM）
     QString csv;
     QTextStream stream(&csv);
 
-    // 写表头
-    stream << "文件名";
-    for (const auto &line : lines) {
-        stream << "," << line.label;
-    }
-    stream << "\n";
+    // 先收集所有文件的峰值信息（用于构建统一表头）
+    struct PeakInfo {
+        double wavelength;
+        double intensity;
+        double computedValue; // FWHM × 半峰
+    };
+    QVector<QPair<QString, QVector<PeakInfo>>> allResults; // (fileName, peaks)
 
-    // 逐文件处理
-    int successCount = 0;
+    int totalPeaks = 0;
+    int maxPeakCount = 0;
+
     for (int i = 0; i < filePaths.size(); ++i) {
         if (progress.wasCanceled())
             break;
@@ -246,31 +245,56 @@ void MainWindow::onExportResults()
         progress.setValue(i);
         QApplication::processEvents();
 
-        // 确保已解析
         ensureFileParsed(path);
-
         const SpectrumData &data = m_dataCache[path];
         QString fileName = QFileInfo(path).fileName();
 
-        stream << "\"" << fileName << "\"";
-
+        QVector<PeakInfo> peakInfos;
         if (data.isValid()) {
-            for (const auto &line : lines) {
-                auto result = SpectralAnalyzer::analyze(data.points, line.wavelength, line.label);
-                if (result.valid) {
-                    stream << "," << result.computedValue;
-                } else {
-                    stream << ",N/A";
-                }
+            QVector<DetectedPeak> peaks = SpectralAnalyzer::detectPeaks(data.points);
+            for (const auto &peak : peaks) {
+                auto result = SpectralAnalyzer::analyzePeak(data.points, peak);
+                PeakInfo info;
+                info.wavelength    = peak.wavelength;
+                info.intensity     = peak.intensity;
+                info.computedValue = result.computedValue;
+                peakInfos.append(info);
             }
+            totalPeaks += peaks.size();
+        }
+
+        allResults.append({fileName, peakInfos});
+        if (peakInfos.size() > maxPeakCount)
+            maxPeakCount = peakInfos.size();
+    }
+
+    // 写表头
+    stream << "文件名";
+    for (int j = 0; j < maxPeakCount; ++j) {
+        stream << QString(",峰值%1_波长(nm),峰值%1_强度,峰值%1_半高宽").arg(j + 1);
+    }
+    stream << "\n";
+
+    // 写数据行：每文件一行
+    for (const auto &[fileName, peakInfos] : allResults) {
+        stream << "\"" << fileName << "\"";
+        if (peakInfos.isEmpty()) {
+            for (int j = 0; j < maxPeakCount; ++j)
+                stream << ",,,";
         } else {
-            for (int j = 0; j < lines.size(); ++j) {
-                stream << ",N/A";
+            for (const auto &info : peakInfos) {
+                stream << "," << QString::number(info.wavelength, 'f', 2);
+                stream << "," << QString::number(info.intensity, 'f', 2);
+                stream << "," << QString::number(info.computedValue, 'f', 4);
             }
+            // 补齐不足 maxPeakCount 的列
+            for (int j = peakInfos.size(); j < maxPeakCount; ++j)
+                stream << ",,,";
         }
         stream << "\n";
-        ++successCount;
     }
+
+    int successCount = allResults.size();
 
     progress.setValue(filePaths.size());
 
@@ -288,9 +312,12 @@ void MainWindow::onExportResults()
     fileStream << csv;
     file.close();
 
-    statusBar()->showMessage(QString("已导出 %1 个文件的谱线分析结果 → %2")
+    statusBar()->showMessage(QString("已导出 %1 个文件共 %2 个峰值 → %3")
                                  .arg(successCount)
+                                 .arg(totalPeaks)
                                  .arg(savePath));
     QMessageBox::information(this, "导出完成",
-                             QString("成功导出 %1 个文件的分析结果。").arg(successCount));
+                             QString("成功导出 %1 个文件，共 %2 个峰值的 FWHM 分析结果。")
+                                 .arg(successCount)
+                                 .arg(totalPeaks));
 }
