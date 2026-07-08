@@ -57,6 +57,8 @@ void MainWindow::setupUi()
             this, &MainWindow::onFileSelected);
     connect(m_fileListPanel, &FileListPanel::exportRequested,
             this, &MainWindow::onExportResults);
+    connect(m_metadataPanel, &MetadataPanel::sgParamsChanged,
+            this, &MainWindow::onSGParamsChanged);
 
     // 状态栏
     statusBar()->showMessage("就绪");
@@ -105,17 +107,23 @@ void MainWindow::onFileSelected(const QString &filePath)
     if (filePath.isEmpty())
         return;
 
+    m_currentFilePath = filePath;
     statusBar()->showMessage(QString("正在加载: %1").arg(filePath));
 
     // 检查缓存
     if (m_dataCache.contains(filePath) && m_dataCache[filePath].isValid()) {
         const SpectrumData &data = m_dataCache[filePath];
-        m_chartView->setSpectrumData(data);
+        QVector<QPointF> smoothed = m_smoothedCache.value(filePath);
+        SpectrumData displayData = data;
+        displayData.points = smoothed;
+
+        m_chartView->setSpectrumData(displayData);
         m_metadataPanel->setMetadata(data.metadata, data.fileName, data.pointCount());
-        m_metadataPanel->setSpectrumPoints(data.points);
-        statusBar()->showMessage(QString("已显示: %1 (%2 个数据点)")
+        m_metadataPanel->setSpectrumPoints(smoothed);
+        statusBar()->showMessage(QString("已显示: %1 (%2 个数据点, %3)")
                                      .arg(data.fileName)
-                                     .arg(data.pointCount()));
+                                     .arg(data.pointCount())
+                                     .arg(m_sgParams.enabled ? "S-G 平滑" : "原始"));
         return;
     }
 
@@ -129,16 +137,43 @@ void MainWindow::onFileSelected(const QString &filePath)
         return;
     }
 
-    // 缓存并展示
+    // 缓存原始数据
     SpectrumData data = result.value();
     m_dataCache[filePath] = data;
 
-    m_chartView->setSpectrumData(data);
+    // 平滑处理
+    QVector<QPointF> smoothed = SpectralAnalyzer::savitzkyGolay(data.points, m_sgParams);
+    m_smoothedCache[filePath] = smoothed;
+
+    // 展示平滑后的数据
+    SpectrumData displayData = data;
+    displayData.points = smoothed;
+    m_chartView->setSpectrumData(displayData);
     m_metadataPanel->setMetadata(data.metadata, data.fileName, data.pointCount());
-    m_metadataPanel->setSpectrumPoints(data.points);
-    statusBar()->showMessage(QString("已显示: %1 (%2 个数据点)")
+    m_metadataPanel->setSpectrumPoints(smoothed);
+    statusBar()->showMessage(QString("已显示: %1 (%2 个数据点, %3)")
                                  .arg(data.fileName)
-                                 .arg(data.pointCount()));
+                                 .arg(data.pointCount())
+                                 .arg(m_sgParams.enabled ? "S-G 平滑" : "原始"));
+}
+
+void MainWindow::onSGParamsChanged()
+{
+    m_sgParams = m_metadataPanel->sgParams();
+    // 重新平滑所有缓存数据
+    for (auto it = m_dataCache.begin(); it != m_dataCache.end(); ++it) {
+        if (it.value().isValid())
+            m_smoothedCache[it.key()] = SpectralAnalyzer::savitzkyGolay(it.value().points, m_sgParams);
+    }
+    // 刷新当前显示
+    if (!m_currentFilePath.isEmpty())
+        onFileSelected(m_currentFilePath);
+}
+
+void MainWindow::applySmoothAndRefresh()
+{
+    if (!m_currentFilePath.isEmpty())
+        onFileSelected(m_currentFilePath);
 }
 
 void MainWindow::onExportResults()
@@ -251,9 +286,10 @@ void MainWindow::onExportResults()
 
         QVector<PeakInfo> peakInfos;
         if (data.isValid()) {
-            QVector<DetectedPeak> peaks = SpectralAnalyzer::detectPeaks(data.points);
+            QVector<QPointF> pts = m_smoothedCache.value(path, data.points);
+            QVector<DetectedPeak> peaks = SpectralAnalyzer::detectPeaks(pts);
             for (const auto &peak : peaks) {
-                auto result = SpectralAnalyzer::analyzePeak(data.points, peak);
+                auto result = SpectralAnalyzer::analyzePeak(pts, peak);
                 PeakInfo info;
                 info.wavelength    = peak.wavelength;
                 info.intensity     = peak.intensity;

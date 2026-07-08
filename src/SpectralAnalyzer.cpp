@@ -1,6 +1,140 @@
 #include "SpectralAnalyzer.h"
 #include <cmath>
 #include <limits>
+#include <numeric>
+
+// ========== Savitzky-Golay 平滑 ==========
+
+/// 用高斯消元法解 Ax = b，返回 x
+static QVector<double> solveLinearSystem(QVector<QVector<double>> A, QVector<double> b)
+{
+    const int n = A.size();
+    for (int col = 0, row = 0; col < n && row < n; ++col) {
+        // 选主元
+        int pivot = row;
+        for (int i = row + 1; i < n; ++i) {
+            if (std::abs(A[i][col]) > std::abs(A[pivot][col]))
+                pivot = i;
+        }
+        if (std::abs(A[pivot][col]) < 1e-12) continue;
+        std::swap(A[row], A[pivot]);
+        std::swap(b[row], b[pivot]);
+
+        // 消元
+        for (int i = row + 1; i < n; ++i) {
+            double factor = A[i][col] / A[row][col];
+            for (int j = col; j < n; ++j)
+                A[i][j] -= factor * A[row][j];
+            b[i] -= factor * b[row];
+        }
+        ++row;
+    }
+
+    // 回代
+    QVector<double> x(n, 0.0);
+    for (int i = n - 1; i >= 0; --i) {
+        double sum = b[i];
+        for (int j = i + 1; j < n; ++j)
+            sum -= A[i][j] * x[j];
+        x[i] = (std::abs(A[i][i]) > 1e-12) ? sum / A[i][i] : 0.0;
+    }
+    return x;
+}
+
+static QVector<double> computeSGCoeffs(int windowSize, int polyOrder)
+{
+    if (windowSize % 2 == 0) windowSize += 1; // 确保奇数
+    if (polyOrder >= windowSize) polyOrder = windowSize - 1;
+
+    const int halfWin = windowSize / 2;
+    const int nCols   = polyOrder + 1;
+
+    // 构建设计矩阵 A: A[i][j] = (i - halfWin)^j
+    QVector<QVector<double>> A(windowSize, QVector<double>(nCols));
+    for (int i = 0; i < windowSize; ++i) {
+        double x = i - halfWin;
+        double xp = 1.0;
+        for (int j = 0; j < nCols; ++j) {
+            A[i][j] = xp;
+            xp *= x;
+        }
+    }
+
+    // 计算 A^T A (nCols × nCols)
+    QVector<QVector<double>> ATA(nCols, QVector<double>(nCols, 0.0));
+    for (int i = 0; i < nCols; ++i)
+        for (int j = 0; j < nCols; ++j)
+            for (int k = 0; k < windowSize; ++k)
+                ATA[i][j] += A[k][i] * A[k][j];
+
+    // 对于每个窗口位置，我们需要系数向量 c 使得 smoothed = sum(c_k * y_k)
+    // c 是 A * (A^T A)^{-1} 的中心行（halfWin 行）
+    // 等价于求解 (A^T A) c_raw = e0（只关心中心点）
+    QVector<double> e0(nCols, 0.0);
+    e0[0] = 1.0; // e0 = [1, 0, 0, ...], 提取第 0 阶系数（平滑值，非导数）
+
+    QVector<double> rawCoeffs = solveLinearSystem(ATA, e0);
+
+    // 完整系数: c[i] = rawCoeffs · A[i]  (A[i] 是第 i 行的设计向量)
+    QVector<double> coeffs(windowSize);
+    for (int i = 0; i < windowSize; ++i) {
+        double sum = 0.0;
+        for (int j = 0; j < nCols; ++j)
+            sum += rawCoeffs[j] * A[i][j];
+        coeffs[i] = sum;
+    }
+    return coeffs;
+}
+
+QVector<QPointF> SpectralAnalyzer::savitzkyGolay(const QVector<QPointF> &points,
+                                                    const SGParams &params)
+{
+    if (!params.enabled || points.size() < params.windowSize)
+        return points;
+
+    const int n = points.size();
+
+    // 只对 Y 值做平滑
+    QVector<double> y(n);
+    for (int i = 0; i < n; ++i)
+        y[i] = points[i].y();
+
+    // 计算中间的卷积系数
+    QVector<double> coeffs = computeSGCoeffs(params.windowSize, params.polyOrder);
+    const int halfWin = params.windowSize / 2;
+
+    QVector<double> smoothed(n, 0.0);
+
+    for (int i = 0; i < n; ++i) {
+        if (i < halfWin || i >= n - halfWin) {
+            // 边缘：用当前点附近的非对称窗口重新计算系数
+            int localHalf = std::min({i, n - 1 - i, halfWin});
+            int localSize = 2 * localHalf + 1;
+            QVector<double> localCoeffs = computeSGCoeffs(localSize, std::min(params.polyOrder, localSize - 1));
+            int localHalfW = localSize / 2;
+
+            double sum = 0.0;
+            for (int j = -localHalfW; j <= localHalfW; ++j)
+                sum += localCoeffs[j + localHalfW] * y[i + j];
+            smoothed[i] = sum;
+        } else {
+            // 中心区域：直接卷积
+            double sum = 0.0;
+            for (int j = -halfWin; j <= halfWin; ++j)
+                sum += coeffs[j + halfWin] * y[i + j];
+            smoothed[i] = sum;
+        }
+    }
+
+    // 构建输出点（波长不变，强度取平滑值）
+    QVector<QPointF> result(n);
+    for (int i = 0; i < n; ++i)
+        result[i] = QPointF(points[i].x(), smoothed[i]);
+
+    return result;
+}
+
+// ========== 预定义谱线 ==========
 
 const QVector<SpectralAnalyzer::LineDef> &SpectralAnalyzer::predefinedLines()
 {

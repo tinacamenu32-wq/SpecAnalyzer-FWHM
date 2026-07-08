@@ -4,6 +4,8 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QSpinBox>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVector>
@@ -11,7 +13,7 @@
 #include "SpectrumData.h"
 #include "SpectralAnalyzer.h"
 
-/// 底部面板：文件元数据 + 谱线分析
+/// 底部面板：文件元数据 + 谱线分析 + S-G 平滑
 class MetadataPanel : public QWidget {
     Q_OBJECT
 public:
@@ -27,10 +29,17 @@ public:
     /// 获取当前检测到的所有峰值
     const QVector<DetectedPeak> &detectedPeaks() const { return m_detectedPeaks; }
 
+    /// 获取 S-G 平滑参数
+    SpectralAnalyzer::SGParams sgParams() const;
+
     void clear();
+
+signals:
+    void sgParamsChanged();
 
 private slots:
     void onLineSelected(int index);
+    void onSGSettingsChanged();
 
 private:
     void setupUi();
@@ -47,8 +56,13 @@ private:
     QLabel *m_lblTriggerMode    = nullptr;
     QLabel *m_lblTriggerDelay   = nullptr;
 
+    // --- S-G 平滑 ---
+    QCheckBox *m_chkSGEnable  = nullptr;
+    QSpinBox  *m_spinWindow   = nullptr;
+    QSpinBox  *m_spinOrder    = nullptr;
+
     // --- 谱线分析 ---
-    QLabel    *m_lblPeakCount = nullptr;  // 检测到的峰数量
+    QLabel    *m_lblPeakCount = nullptr;
     QComboBox *m_cmbLine      = nullptr;
     QLabel    *m_lblPeakWl    = nullptr;
     QLabel    *m_lblPeakInt   = nullptr;

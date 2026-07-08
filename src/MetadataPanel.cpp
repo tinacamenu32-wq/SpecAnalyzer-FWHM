@@ -64,6 +64,47 @@ void MetadataPanel::setupUi()
 
     outerLayout->addLayout(form);
 
+    // ===== S-G 平滑 =====
+    auto *sgTitle = new QLabel("Savitzky-Golay 平滑", contentWidget);
+    sgTitle->setFont(boldFont);
+    outerLayout->addWidget(sgTitle);
+
+    auto *separator1b = new QFrame(contentWidget);
+    separator1b->setFrameShape(QFrame::HLine);
+    separator1b->setFrameShadow(QFrame::Sunken);
+    outerLayout->addWidget(separator1b);
+
+    auto *sgLayout = new QHBoxLayout();
+    m_chkSGEnable = new QCheckBox("启用", contentWidget);
+    m_chkSGEnable->setChecked(true);
+    sgLayout->addWidget(m_chkSGEnable);
+
+    sgLayout->addWidget(new QLabel("窗口:", contentWidget));
+    m_spinWindow = new QSpinBox(contentWidget);
+    m_spinWindow->setRange(3, 31);
+    m_spinWindow->setSingleStep(2);
+    m_spinWindow->setValue(7);
+    m_spinWindow->setToolTip("窗口点数(奇数): 越大去噪越强，但会丢失细节");
+    sgLayout->addWidget(m_spinWindow);
+
+    auto *lblWinHint = new QLabel("越大越平滑", contentWidget);
+    lblWinHint->setStyleSheet("color: #888; font-size: 10px;");
+    sgLayout->addWidget(lblWinHint);
+
+    sgLayout->addWidget(new QLabel("阶数:", contentWidget));
+    m_spinOrder = new QSpinBox(contentWidget);
+    m_spinOrder->setRange(1, 5);
+    m_spinOrder->setValue(2);
+    m_spinOrder->setToolTip("多项式阶数: 越高越能保留峰形细节");
+    sgLayout->addWidget(m_spinOrder);
+
+    auto *lblOrderHint = new QLabel("越高越保峰形", contentWidget);
+    lblOrderHint->setStyleSheet("color: #888; font-size: 10px;");
+    sgLayout->addWidget(lblOrderHint);
+
+    sgLayout->addStretch();
+    outerLayout->addLayout(sgLayout);
+
     // ===== 谱线分析 =====
     auto *analysisTitle = new QLabel("谱线分析", contentWidget);
     analysisTitle->setFont(boldFont);
@@ -125,6 +166,26 @@ void MetadataPanel::setupUi()
     // 信号连接
     connect(m_cmbLine, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MetadataPanel::onLineSelected);
+    connect(m_chkSGEnable, &QCheckBox::toggled, this, &MetadataPanel::onSGSettingsChanged);
+    connect(m_spinWindow, QOverload<int>::of(&QSpinBox::valueChanged), this, &MetadataPanel::onSGSettingsChanged);
+    connect(m_spinOrder, QOverload<int>::of(&QSpinBox::valueChanged), this, &MetadataPanel::onSGSettingsChanged);
+}
+
+SpectralAnalyzer::SGParams MetadataPanel::sgParams() const
+{
+    SpectralAnalyzer::SGParams p;
+    p.enabled    = m_chkSGEnable->isChecked();
+    p.windowSize = m_spinWindow->value();
+    p.polyOrder  = m_spinOrder->value();
+    return p;
+}
+
+void MetadataPanel::onSGSettingsChanged()
+{
+    // 确保奇数窗口
+    if (m_spinWindow->value() % 2 == 0)
+        m_spinWindow->setValue(m_spinWindow->value() + 1);
+    emit sgParamsChanged();
 }
 
 void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)

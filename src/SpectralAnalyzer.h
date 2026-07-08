@@ -35,7 +35,21 @@ public:
         double  wavelength;
     };
 
+    /// Savitzky-Golay 平滑参数
+    struct SGParams {
+        int windowSize = 7;   // 窗口大小（奇数），默认 7
+        int polyOrder  = 2;   // 多项式阶数，默认 2（与 Origin 一致）
+        bool enabled   = true; // 是否启用平滑
+    };
+
     static const QVector<LineDef> &predefinedLines();
+
+    /// Savitzky-Golay 平滑滤波
+    /// @param points  光谱数据点（只平滑强度，波长不变）
+    /// @param params  平滑参数
+    /// @return 平滑后的数据点
+    static QVector<QPointF> savitzkyGolay(const QVector<QPointF> &points,
+                                            const SGParams &params);
 
     /// 自动检测光谱数据中的所有峰值
     /// @param points          光谱数据点

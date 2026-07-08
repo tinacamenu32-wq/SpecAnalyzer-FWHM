@@ -4,7 +4,7 @@
 #include <QString>
 #include <optional>
 
-/// 静态 CSV 解析器：处理 UTF-8 BOM + 中文元数据 + 谱线数据
+/// 静态 CSV 解析器：处理 UTF-8 BOM + 双重编码修复 + 中文元数据 + 谱线数据
 class CsvParser {
 public:
     /// 解析一个 CSV 文件，失败返回 std::nullopt

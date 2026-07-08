@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QStringView>
 #include <QDebug>
+#include <QRegularExpression>
 
 QByteArray CsvParser::stripBom(const QByteArray &raw)
 {
@@ -15,6 +16,23 @@ QByteArray CsvParser::stripBom(const QByteArray &raw)
         return raw.mid(3);
     }
     return raw;
+}
+
+/// 检测并修复双重 UTF-8 编码
+/// 场景：中文字符被 UTF-8 → Latin-1 误解码 → 再次 UTF-8 编码，导致乱码
+static QString fixDoubleEncoding(const QString &maybeGarbled)
+{
+    // 尝试 latin-1 → utf-8 反向修复
+    QByteArray latin1Bytes = maybeGarbled.toLatin1();
+    if (latin1Bytes.isEmpty())
+        return maybeGarbled;
+
+    // 检查修复后的文本是否包含中文字符
+    QString fixed = QString::fromUtf8(latin1Bytes);
+    if (fixed.contains(QRegularExpression("[\\x{4e00}-\\x{9fff}]")))
+        return fixed;
+
+    return maybeGarbled;
 }
 
 bool CsvParser::parseMetadata(const QStringList &headerFields,
@@ -87,9 +105,9 @@ std::optional<SpectrumData> CsvParser::parse(const QString &filePath,
     QByteArray raw = file.readAll();
     file.close();
 
-    // 1. 去除 UTF-8 BOM
+    // 1. 去除 UTF-8 BOM 并修复双重 UTF-8 编码
     QByteArray cleanData = stripBom(raw);
-    QString content = QString::fromUtf8(cleanData);
+    QString content = fixDoubleEncoding(QString::fromUtf8(cleanData));
 
     // 2. 分行并处理 \r\n
     QStringList rawLines = content.split('\n');
