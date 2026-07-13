@@ -5,9 +5,13 @@
 #include <QtCharts/QChart>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
+#include <QtCharts/QScatterSeries>
 #include <QPointF>
+#include <QGraphicsTextItem>
+#include <QVector>
 
 class SpectrumData;
+struct DetectedPeak;
 
 /// 支持滚轮缩放 + 拖拽平移的自定义 ChartView
 class ZoomableChartView : public QChartView {
@@ -35,7 +39,6 @@ private:
     double m_origYMin = 0, m_origYMax = 1000;
     bool   m_origSet = false;
 
-    // 拖拽平移
     bool    m_isPanning = false;
     QPointF m_lastPanPos;
 };
@@ -49,12 +52,24 @@ public:
     void setSpectrumData(const SpectrumData &data);
     void clear();
 
+    /// 在图上显示峰值编号标记
+    void setPeakMarkers(const QVector<DetectedPeak> &peaks);
+
+private slots:
+    void updatePeakLabels();
+
 private:
     void setupChart();
+    void clearPeakLabels();
 
     ZoomableChartView *m_chartView = nullptr;
     QChart            *m_chart     = nullptr;
     QLineSeries       *m_series    = nullptr;
+    QScatterSeries    *m_markers   = nullptr; // 峰值散点
     QValueAxis        *m_axisX     = nullptr;
     QValueAxis        *m_axisY     = nullptr;
+
+    // 编号标签
+    QVector<QGraphicsTextItem *> m_peakLabels;
+    QVector<QPointF>             m_peakPositions; // 峰坐标 (wl, intensity)
 };

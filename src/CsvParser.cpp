@@ -105,20 +105,19 @@ std::optional<SpectrumData> CsvParser::parse(const QString &filePath,
     QByteArray raw = file.readAll();
     file.close();
 
-    // 1. 去除 UTF-8 BOM 并修复双重 UTF-8 编码
+    // 1. 去除 UTF-8 BOM
     QByteArray cleanData = stripBom(raw);
-    QString content = fixDoubleEncoding(QString::fromUtf8(cleanData));
+    QString content = QString::fromUtf8(cleanData);
 
-    // 2. 分行并处理 \r\n
+    // 2. 分行，逐行修复双重 UTF-8 编码
     QStringList rawLines = content.split('\n');
     QStringList lines;
     lines.reserve(rawLines.size());
-    for (const QString &line : rawLines) {
-        QString trimmed = line;
-        if (trimmed.endsWith('\r'))
-            trimmed.chop(1);
-        if (!trimmed.isEmpty())
-            lines.append(trimmed);
+    for (QString line : rawLines) {
+        if (line.endsWith('\r'))
+            line.chop(1);
+        if (!line.isEmpty())
+            lines.append(fixDoubleEncoding(line));
     }
 
     if (lines.size() < 4) {

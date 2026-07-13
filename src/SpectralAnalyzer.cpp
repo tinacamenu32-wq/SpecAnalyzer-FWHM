@@ -134,6 +134,157 @@ QVector<QPointF> SpectralAnalyzer::savitzkyGolay(const QVector<QPointF> &points,
     return result;
 }
 
+// ========== ALS 基线扣除 ==========
+
+/// 求解 pentadiagonal SPD 系统 Mx = b（带半宽 2 的 Cholesky）
+/// a[i]=M[i][i-2], b[i]=M[i][i-1], c[i]=M[i][i], M symmetric
+static QVector<double> solvePenta(const QVector<double> &a,
+                                   const QVector<double> &b,
+                                   const QVector<double> &c,
+                                   const QVector<double> &rhs)
+{
+    const int n = c.size();
+    // 存储 L 因子: l2[i] = L[i][i-2], l1[i] = L[i][i-1], d[i] = D[i]
+    QVector<double> l2(n, 0.0), l1(n, 0.0), d(n, 0.0);
+
+    // Cholesky 分解 L D L^T
+    for (int i = 0; i < n; ++i) {
+        double cbar = c[i];
+
+        if (i >= 1)
+            cbar -= l1[i] * l1[i] * d[i - 1];
+        if (i >= 2)
+            cbar -= l2[i] * l2[i] * d[i - 2];
+
+        if (cbar <= 0.0) cbar = 1e-12;
+        d[i] = cbar;
+
+        // L[i+1][i]
+        if (i + 1 < n) {
+            double val = b[i + 1];
+            if (i >= 1)
+                val -= l2[i + 1] * l1[i] * d[i - 1];
+            l1[i + 1] = val / d[i];
+        }
+        // L[i+2][i]
+        if (i + 2 < n) {
+            l2[i + 2] = a[i + 2] / d[i];
+        }
+    }
+
+    // 前代 L y = rhs
+    QVector<double> y(n);
+    for (int i = 0; i < n; ++i) {
+        double sum = rhs[i];
+        if (i >= 1) sum -= l1[i] * y[i - 1];
+        if (i >= 2) sum -= l2[i] * y[i - 2];
+        y[i] = sum;
+    }
+
+    // 缩放 D z = y 和回代 L^T x = z
+    QVector<double> x(n);
+    for (int i = n - 1; i >= 0; --i) {
+        double zi = y[i] / d[i];
+        if (i + 1 < n) zi -= l1[i + 1] * x[i + 1];
+        if (i + 2 < n) zi -= l2[i + 2] * x[i + 2];
+        x[i] = zi;
+    }
+
+    return x;
+}
+
+QVector<QPointF> SpectralAnalyzer::computeBaseline(const QVector<QPointF> &points,
+                                                      const BLParams &params)
+{
+    const int n = points.size();
+    QVector<QPointF> baseline(n);
+
+    if (n < 5) {
+        for (int i = 0; i < n; ++i)
+            baseline[i] = QPointF(points[i].x(), points[i].y());
+        return baseline;
+    }
+
+    // 提取 Y 值
+    QVector<double> y(n);
+    for (int i = 0; i < n; ++i)
+        y[i] = points[i].y();
+
+    // 构建 D^T D 的固定部分（不随迭代改变）
+    // 对五对角矩阵，只存下三角（子对角线）:
+    // a[i] = M[i][i-2] (i≥2), b[i] = M[i][i-1] (i≥1), c[i] = M[i][i]
+    QVector<double> a_dtd(n, 0.0), b_dtd(n, 0.0), c_dtd(n, 0.0);
+
+    const double lam = params.lambda;
+
+    // Row 0: D^T D[0] = [1, -2, 1]
+    c_dtd[0] = lam;
+    // b_dtd[0] = 0 (no subdiagonal)
+
+    // Row 1: D^T D[1] = [-2, 5, -4, 1]
+    b_dtd[1] = -2.0 * lam;
+    c_dtd[1] =  5.0 * lam;
+    // a_dtd[1] = 0
+
+    // Interior rows 2..n-3: D^T D[i] = [1, -4, 6, -4, 1]
+    for (int i = 2; i < n - 2; ++i) {
+        a_dtd[i] = lam;
+        b_dtd[i] = -4.0 * lam;
+        c_dtd[i] =  6.0 * lam;
+    }
+
+    // Row n-2: D^T D[n-2] = [1, -4, 5, -2]
+    if (n > 2) {
+        a_dtd[n - 2] = lam;
+        b_dtd[n - 2] = -4.0 * lam;
+        c_dtd[n - 2] =  5.0 * lam;
+    }
+
+    // Row n-1: D^T D[n-1] = [1, -2, 1]
+    if (n > 1) {
+        a_dtd[n - 1] = lam;
+        b_dtd[n - 1] = -2.0 * lam;
+        c_dtd[n - 1] = lam;
+    }
+
+    // 初始基线 = 数据的最小二乘平滑近似（y 本身）
+    QVector<double> z = y;
+
+    // ALS 迭代
+    for (int iter = 0; iter < params.niter; ++iter) {
+        QVector<double> a_m(n), b_m(n), c_m(n), rhs(n);
+
+        for (int i = 0; i < n; ++i) {
+            double w = (y[i] > z[i]) ? params.p : (1.0 - params.p);
+            rhs[i] = w * y[i];
+            c_m[i] = w + c_dtd[i];
+            a_m[i] = a_dtd[i];  // 对 i<2 天然为 0
+            b_m[i] = b_dtd[i];  // 对 i<1 天然为 0
+        }
+
+        z = solvePenta(a_m, b_m, c_m, rhs);
+    }
+
+    for (int i = 0; i < n; ++i)
+        baseline[i] = QPointF(points[i].x(), z[i]);
+
+    return baseline;
+}
+
+QVector<QPointF> SpectralAnalyzer::subtractBaseline(const QVector<QPointF> &points,
+                                                       const BLParams &params)
+{
+    if (!params.enabled || points.isEmpty())
+        return points;
+
+    QVector<QPointF> baseline = computeBaseline(points, params);
+    QVector<QPointF> result(points.size());
+    for (int i = 0; i < points.size(); ++i)
+        result[i] = QPointF(points[i].x(), points[i].y() - baseline[i].y());
+
+    return result;
+}
+
 // ========== 预定义谱线 ==========
 
 const QVector<SpectralAnalyzer::LineDef> &SpectralAnalyzer::predefinedLines()

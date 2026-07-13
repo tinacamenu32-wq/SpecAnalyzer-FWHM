@@ -1,11 +1,14 @@
 #include "SpectrumChartView.h"
 #include "SpectrumData.h"
+#include "SpectralAnalyzer.h"
 
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QMouseEvent>
 #include <QValueAxis>
 #include <QtCharts/QScatterSeries>
+#include <QGraphicsScene>
+#include <QFont>
 
 // ==================== ZoomableChartView ====================
 
@@ -153,8 +156,15 @@ void SpectrumChartView::setupChart()
     m_series = new QLineSeries(this);
     m_series->setName("光谱强度");
 
+    // 峰值标记散点
+    m_markers = new QScatterSeries(this);
+    m_markers->setMarkerSize(6);
+    m_markers->setColor(Qt::red);
+    m_markers->setBorderColor(Qt::darkRed);
+
     m_chart = new QChart();
     m_chart->addSeries(m_series);
+    m_chart->addSeries(m_markers);
     m_chart->legend()->hide();
     m_chart->setTitle("光谱图");
     m_chart->setAnimationOptions(QChart::SeriesAnimations);
@@ -171,11 +181,16 @@ void SpectrumChartView::setupChart()
     m_chart->addAxis(m_axisY, Qt::AlignLeft);
     m_series->attachAxis(m_axisX);
     m_series->attachAxis(m_axisY);
+    m_markers->attachAxis(m_axisX);
+    m_markers->attachAxis(m_axisY);
 
     m_axisX->setRange(0, 1000);
     m_axisY->setRange(0, 1000);
 
     m_chartView = new ZoomableChartView(m_chart, this);
+
+    // 缩放/平移后更新标签位置
+    connect(m_chart, &QChart::plotAreaChanged, this, &SpectrumChartView::updatePeakLabels);
 }
 
 void SpectrumChartView::setSpectrumData(const SpectrumData &data)
@@ -183,6 +198,7 @@ void SpectrumChartView::setSpectrumData(const SpectrumData &data)
     if (!data.isValid())
         return;
 
+    clearPeakLabels();
     m_series->replace(data.points);
 
     double wlPad  = (data.wavelengthMax() - data.wavelengthMin()) * 0.02;
@@ -204,8 +220,79 @@ void SpectrumChartView::setSpectrumData(const SpectrumData &data)
 
 void SpectrumChartView::clear()
 {
+    clearPeakLabels();
     m_series->clear();
+    m_markers->clear();
     m_axisX->setRange(0, 1000);
     m_axisY->setRange(0, 1000);
     m_chart->setTitle("光谱图");
+}
+
+// ========== 峰值编号标记 ==========
+
+void SpectrumChartView::clearPeakLabels()
+{
+    for (auto *label : m_peakLabels) {
+        if (label->scene())
+            label->scene()->removeItem(label);
+        delete label;
+    }
+    m_peakLabels.clear();
+    m_peakPositions.clear();
+}
+
+void SpectrumChartView::setPeakMarkers(const QVector<DetectedPeak> &peaks)
+{
+    clearPeakLabels();
+    m_markers->clear();
+
+    if (peaks.isEmpty()) return;
+
+    // 添加散点标记
+    for (const auto &p : peaks)
+        m_markers->append(p.wavelength, p.intensity);
+
+    // 记录峰坐标用于标签定位
+    for (const auto &p : peaks)
+        m_peakPositions.append(QPointF(p.wavelength, p.intensity));
+
+    updatePeakLabels();
+}
+
+void SpectrumChartView::updatePeakLabels()
+{
+    // 清除旧标签
+    for (auto *label : m_peakLabels) {
+        if (label->scene())
+            label->scene()->removeItem(label);
+        delete label;
+    }
+    m_peakLabels.clear();
+
+    if (m_peakPositions.isEmpty()) return;
+
+    // 计算标签偏移：Y轴范围的一小部分
+    double yRange = m_axisY->max() - m_axisY->min();
+    double yOffset = yRange * 0.03;
+
+    for (int i = 0; i < m_peakPositions.size(); ++i) {
+        QPointF dataPt(m_peakPositions[i].x(), m_peakPositions[i].y() + yOffset);
+
+        // 数据坐标 → 场景坐标
+        QPointF scenePt = m_chart->mapToPosition(dataPt);
+        // 转换为图表视图坐标系
+        QPointF viewPt = m_chartView->mapFromScene(scenePt);
+
+        auto *label = new QGraphicsTextItem(QString::number(i + 1));
+        QFont f = label->font();
+        f.setPointSize(8);
+        f.setBold(true);
+        label->setFont(f);
+        label->setDefaultTextColor(Qt::red);
+        label->setPos(scenePt);
+        label->setZValue(100);
+
+        m_chart->scene()->addItem(label);
+        m_peakLabels.append(label);
+    }
 }

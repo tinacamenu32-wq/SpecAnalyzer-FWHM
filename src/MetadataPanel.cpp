@@ -1,6 +1,7 @@
 #include "MetadataPanel.h"
 
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QFrame>
 #include <QFont>
 #include <QScrollArea>
@@ -14,7 +15,6 @@ MetadataPanel::MetadataPanel(QWidget *parent)
 
 void MetadataPanel::setupUi()
 {
-    // 用 QScrollArea 包裹，方便内容多时滚动
     auto *scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
@@ -24,11 +24,12 @@ void MetadataPanel::setupUi()
     outerLayout->setContentsMargins(8, 4, 8, 8);
     outerLayout->setSpacing(4);
 
-    // ===== 文件信息 =====
-    auto *titleLabel = new QLabel("文件信息", contentWidget);
-    QFont boldFont = titleLabel->font();
+    QFont boldFont;
     boldFont.setBold(true);
     boldFont.setPointSize(11);
+
+    // ===== 文件信息 =====
+    auto *titleLabel = new QLabel("文件信息", contentWidget);
     titleLabel->setFont(boldFont);
     outerLayout->addWidget(titleLabel);
 
@@ -68,42 +69,109 @@ void MetadataPanel::setupUi()
     auto *sgTitle = new QLabel("Savitzky-Golay 平滑", contentWidget);
     sgTitle->setFont(boldFont);
     outerLayout->addWidget(sgTitle);
-
-    auto *separator1b = new QFrame(contentWidget);
-    separator1b->setFrameShape(QFrame::HLine);
-    separator1b->setFrameShadow(QFrame::Sunken);
-    outerLayout->addWidget(separator1b);
+    auto *sepSG = new QFrame(contentWidget);
+    sepSG->setFrameShape(QFrame::HLine); sepSG->setFrameShadow(QFrame::Sunken);
+    outerLayout->addWidget(sepSG);
 
     auto *sgLayout = new QHBoxLayout();
     m_chkSGEnable = new QCheckBox("启用", contentWidget);
     m_chkSGEnable->setChecked(true);
     sgLayout->addWidget(m_chkSGEnable);
-
     sgLayout->addWidget(new QLabel("窗口:", contentWidget));
     m_spinWindow = new QSpinBox(contentWidget);
-    m_spinWindow->setRange(3, 31);
-    m_spinWindow->setSingleStep(2);
-    m_spinWindow->setValue(7);
-    m_spinWindow->setToolTip("窗口点数(奇数): 越大去噪越强，但会丢失细节");
+    m_spinWindow->setRange(3, 9999); m_spinWindow->setSingleStep(2); m_spinWindow->setValue(7);
     sgLayout->addWidget(m_spinWindow);
-
-    auto *lblWinHint = new QLabel("越大越平滑", contentWidget);
-    lblWinHint->setStyleSheet("color: #888; font-size: 10px;");
-    sgLayout->addWidget(lblWinHint);
-
+    auto *lblW = new QLabel("越大越平滑", contentWidget);
+    lblW->setStyleSheet("color: #888; font-size: 10px;"); sgLayout->addWidget(lblW);
     sgLayout->addWidget(new QLabel("阶数:", contentWidget));
     m_spinOrder = new QSpinBox(contentWidget);
-    m_spinOrder->setRange(1, 5);
-    m_spinOrder->setValue(2);
-    m_spinOrder->setToolTip("多项式阶数: 越高越能保留峰形细节");
+    m_spinOrder->setRange(1, 99); m_spinOrder->setValue(2);
     sgLayout->addWidget(m_spinOrder);
-
-    auto *lblOrderHint = new QLabel("越高越保峰形", contentWidget);
-    lblOrderHint->setStyleSheet("color: #888; font-size: 10px;");
-    sgLayout->addWidget(lblOrderHint);
-
+    auto *lblO = new QLabel("越高越保峰形", contentWidget);
+    lblO->setStyleSheet("color: #888; font-size: 10px;"); sgLayout->addWidget(lblO);
     sgLayout->addStretch();
     outerLayout->addLayout(sgLayout);
+
+    // ===== 去本底 =====
+    auto *blTitle = new QLabel("去本底 (ALS)", contentWidget);
+    blTitle->setFont(boldFont);
+    outerLayout->addWidget(blTitle);
+
+    auto *separator1c = new QFrame(contentWidget);
+    separator1c->setFrameShape(QFrame::HLine);
+    separator1c->setFrameShadow(QFrame::Sunken);
+    outerLayout->addWidget(separator1c);
+
+    auto *blLayout = new QHBoxLayout();
+    m_chkBLEnable = new QCheckBox("启用", contentWidget);
+    m_chkBLEnable->setChecked(true);
+    blLayout->addWidget(m_chkBLEnable);
+
+    blLayout->addWidget(new QLabel("平滑度:", contentWidget));
+    m_spinLambda = new QDoubleSpinBox(contentWidget);
+    m_spinLambda->setRange(1, 1e12);
+    m_spinLambda->setDecimals(0);
+    m_spinLambda->setValue(1e5);
+    blLayout->addWidget(m_spinLambda);
+
+    auto *lblLamHint = new QLabel("越大越平", contentWidget);
+    lblLamHint->setStyleSheet("color: #888; font-size: 10px;");
+    blLayout->addWidget(lblLamHint);
+
+    blLayout->addWidget(new QLabel("不对称性:", contentWidget));
+    m_spinP = new QDoubleSpinBox(contentWidget);
+    m_spinP->setRange(0.0001, 0.5);
+    m_spinP->setDecimals(4);
+    m_spinP->setSingleStep(0.001);
+    m_spinP->setValue(0.01);
+    blLayout->addWidget(m_spinP);
+
+    auto *lblPHint = new QLabel("越小越贴底", contentWidget);
+    lblPHint->setStyleSheet("color: #888; font-size: 10px;");
+    blLayout->addWidget(lblPHint);
+
+    blLayout->addStretch();
+    outerLayout->addLayout(blLayout);
+
+    // ===== 峰值过滤 =====
+    auto *filterTitle = new QLabel("峰值过滤", contentWidget);
+    filterTitle->setFont(boldFont);
+    outerLayout->addWidget(filterTitle);
+
+    auto *separator1d = new QFrame(contentWidget);
+    separator1d->setFrameShape(QFrame::HLine);
+    separator1d->setFrameShadow(QFrame::Sunken);
+    outerLayout->addWidget(separator1d);
+
+    auto *filterLayout = new QHBoxLayout();
+    m_chkFilterEnable = new QCheckBox("启用", contentWidget);
+    m_chkFilterEnable->setChecked(true);
+    filterLayout->addWidget(m_chkFilterEnable);
+    filterLayout->addWidget(new QLabel("最低强度:", contentWidget));
+    m_spinMinIntensity = new QDoubleSpinBox(contentWidget);
+    m_spinMinIntensity->setRange(0, 1e12);
+    m_spinMinIntensity->setDecimals(0);
+    m_spinMinIntensity->setValue(1200);
+    m_spinMinIntensity->setToolTip("过滤掉强度低于此值的噪声峰");
+    filterLayout->addWidget(m_spinMinIntensity);
+
+    filterLayout->addWidget(new QLabel("半高宽范围:", contentWidget));
+    m_spinMinFWHM = new QDoubleSpinBox(contentWidget);
+    m_spinMinFWHM->setRange(0, 1e12);
+    m_spinMinFWHM->setDecimals(4);
+    m_spinMinFWHM->setValue(0.0001);
+    m_spinMinFWHM->setToolTip("最小半高宽");
+    filterLayout->addWidget(m_spinMinFWHM);
+    filterLayout->addWidget(new QLabel("~", contentWidget));
+    m_spinMaxFWHM = new QDoubleSpinBox(contentWidget);
+    m_spinMaxFWHM->setRange(0, 1e12);
+    m_spinMaxFWHM->setDecimals(4);
+    m_spinMaxFWHM->setValue(10000);
+    m_spinMaxFWHM->setToolTip("最大半高宽");
+    filterLayout->addWidget(m_spinMaxFWHM);
+
+    filterLayout->addStretch();
+    outerLayout->addLayout(filterLayout);
 
     // ===== 谱线分析 =====
     auto *analysisTitle = new QLabel("谱线分析", contentWidget);
@@ -115,46 +183,19 @@ void MetadataPanel::setupUi()
     separator2->setFrameShadow(QFrame::Sunken);
     outerLayout->addWidget(separator2);
 
-    // 检测到的峰数量提示
     m_lblPeakCount = new QLabel("未检测到峰值", contentWidget);
     m_lblPeakCount->setStyleSheet("color: #5f6368; font-size: 11px;");
     outerLayout->addWidget(m_lblPeakCount);
 
-    // 谱线选择（由自动检测的峰值填充）
     auto *lineLayout = new QHBoxLayout();
-    auto *lblLine = new QLabel("目标谱线:", contentWidget);
+    lineLayout->addWidget(new QLabel("目标谱线:", contentWidget));
     m_cmbLine = new QComboBox(contentWidget);
-    m_cmbLine->setMinimumWidth(200);
-    lineLayout->addWidget(lblLine);
+    m_cmbLine->setMinimumWidth(280);
     lineLayout->addWidget(m_cmbLine, 1);
+    auto *btnExportPeaks = new QPushButton("导出所选峰值", contentWidget);
+    lineLayout->addWidget(btnExportPeaks);
     outerLayout->addLayout(lineLayout);
 
-    // 计算结果
-    auto *resultForm = new QFormLayout();
-    resultForm->setLabelAlignment(Qt::AlignRight);
-    resultForm->setHorizontalSpacing(10);
-    resultForm->setVerticalSpacing(2);
-
-    m_lblPeakWl   = new QLabel("-", contentWidget);
-    m_lblPeakInt  = new QLabel("-", contentWidget);
-    m_lblFwhm     = new QLabel("-", contentWidget);
-    m_lblHalfPeak = new QLabel("-", contentWidget);
-    m_lblResult   = new QLabel("-", contentWidget);
-
-    // 高亮结果显示
-    QFont resultFont = m_lblResult->font();
-    resultFont.setBold(true);
-    resultFont.setPointSize(resultFont.pointSize() + 1);
-    m_lblResult->setFont(resultFont);
-    m_lblResult->setStyleSheet("color: #1a73e8;");
-
-    resultForm->addRow("峰值波长:",  m_lblPeakWl);
-    resultForm->addRow("峰值强度:",  m_lblPeakInt);
-    resultForm->addRow("半峰全宽:",  m_lblFwhm);
-    resultForm->addRow("半峰强度:",  m_lblHalfPeak);
-    resultForm->addRow("半高宽:", m_lblResult);
-
-    outerLayout->addLayout(resultForm);
     outerLayout->addStretch();
 
     scrollArea->setWidget(contentWidget);
@@ -164,11 +205,17 @@ void MetadataPanel::setupUi()
     mainLayout->addWidget(scrollArea);
 
     // 信号连接
-    connect(m_cmbLine, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &MetadataPanel::onLineSelected);
     connect(m_chkSGEnable, &QCheckBox::toggled, this, &MetadataPanel::onSGSettingsChanged);
     connect(m_spinWindow, QOverload<int>::of(&QSpinBox::valueChanged), this, &MetadataPanel::onSGSettingsChanged);
     connect(m_spinOrder, QOverload<int>::of(&QSpinBox::valueChanged), this, &MetadataPanel::onSGSettingsChanged);
+    connect(m_chkBLEnable, &QCheckBox::toggled, this, &MetadataPanel::onBLSettingsChanged);
+    connect(m_spinLambda, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::onBLSettingsChanged);
+    connect(m_spinP, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::onBLSettingsChanged);
+    connect(m_chkFilterEnable, &QCheckBox::toggled, this, &MetadataPanel::applyFilter);
+    connect(m_spinMinIntensity, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::applyFilter);
+    connect(m_spinMinFWHM, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::applyFilter);
+    connect(m_spinMaxFWHM, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::applyFilter);
+    connect(btnExportPeaks, &QPushButton::clicked, this, &MetadataPanel::peakExportRequested);
 }
 
 SpectralAnalyzer::SGParams MetadataPanel::sgParams() const
@@ -182,60 +229,111 @@ SpectralAnalyzer::SGParams MetadataPanel::sgParams() const
 
 void MetadataPanel::onSGSettingsChanged()
 {
-    // 确保奇数窗口
     if (m_spinWindow->value() % 2 == 0)
         m_spinWindow->setValue(m_spinWindow->value() + 1);
     emit sgParamsChanged();
+}
+
+SpectralAnalyzer::BLParams MetadataPanel::blParams() const
+{
+    SpectralAnalyzer::BLParams p;
+    p.enabled = m_chkBLEnable->isChecked();
+    p.lambda  = m_spinLambda->value();
+    p.p       = m_spinP->value();
+    return p;
+}
+
+void MetadataPanel::onBLSettingsChanged()
+{
+    emit blParamsChanged();
 }
 
 void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
 {
     m_spectrumPoints = points;
 
-    // 断开信号避免填充过程中触发计算
+    if (points.isEmpty()) {
+        m_allPeaks.clear();
+        m_allComputedValues.clear();
+        m_cmbLine->clear();
+        m_lblPeakCount->setText("无光谱数据");
+        return;
+    }
+
+    // 检测所有峰
+    m_allPeaks = SpectralAnalyzer::detectPeaks(points);
+    if (m_allPeaks.isEmpty()) {
+        m_allComputedValues.clear();
+        m_cmbLine->clear();
+        m_lblPeakCount->setText("未检测到显著峰值");
+        return;
+    }
+
+    // 预计算所有峰的半高宽
+    m_allComputedValues.resize(m_allPeaks.size());
+    for (int i = 0; i < m_allPeaks.size(); ++i) {
+        auto result = SpectralAnalyzer::analyzePeak(points, m_allPeaks[i]);
+        m_allComputedValues[i] = result.computedValue;
+    }
+
+    applyFilter();
+}
+
+void MetadataPanel::applyFilter()
+{
+    // 未启用过滤则显示全部
+    if (!m_chkFilterEnable->isChecked()) {
+        m_detectedPeaks = m_allPeaks;
+        m_peakComputedValues = m_allComputedValues;
+        updateComboBox();
+        return;
+    }
+
+    double minInt = m_spinMinIntensity->value();
+    double minFWHM = m_spinMinFWHM->value();
+    double maxFWHM = m_spinMaxFWHM->value();
+
+    // 过滤
+    m_detectedPeaks.clear();
+    m_peakComputedValues.clear();
+    for (int i = 0; i < m_allPeaks.size(); ++i) {
+        const auto &p = m_allPeaks[i];
+        double v = m_allComputedValues[i];
+        if (p.intensity >= minInt && v >= minFWHM && v <= maxFWHM) {
+            m_detectedPeaks.append(p);
+            m_peakComputedValues.append(v);
+        }
+    }
+
+    updateComboBox();
+}
+
+void MetadataPanel::updateComboBox()
+{
     m_cmbLine->blockSignals(true);
     m_cmbLine->clear();
-
-    if (points.isEmpty()) {
-        m_detectedPeaks.clear();
-        m_lblPeakCount->setText("无光谱数据");
-        m_cmbLine->blockSignals(false);
-        return;
-    }
-
-    // 自动检测所有峰值
-    m_detectedPeaks = SpectralAnalyzer::detectPeaks(points);
-
-    if (m_detectedPeaks.isEmpty()) {
-        m_lblPeakCount->setText("未检测到显著峰值");
-        m_cmbLine->blockSignals(false);
-        // 清除结果显示
-        m_lblPeakWl->setText("-");
-        m_lblPeakInt->setText("-");
-        m_lblFwhm->setText("-");
-        m_lblHalfPeak->setText("-");
-        m_lblResult->setText("-");
-        return;
-    }
-
-    // 填充下拉框：显示波长 + 强度概览
     for (int i = 0; i < m_detectedPeaks.size(); ++i) {
         const auto &p = m_detectedPeaks[i];
-        QString text = QString("%1 nm  (强度: %2)")
+        QString text = QString("#%1  %2 nm  强度:%3  半高宽:%4")
+                           .arg(i + 1, 2)
                            .arg(p.wavelength, 8, 'f', 2)
-                           .arg(p.intensity, 0, 'f', 0);
-        m_cmbLine->addItem(text, i);  // 存储峰值在 m_detectedPeaks 中的索引
+                           .arg(p.intensity, 0, 'f', 0)
+                           .arg(m_peakComputedValues[i], 0, 'f', 4);
+        m_cmbLine->addItem(text, i);
     }
-
-    m_lblPeakCount->setText(QString("自动检测到 %1 个峰值").arg(m_detectedPeaks.size()));
-
     m_cmbLine->blockSignals(false);
 
-    // 自动选中第一个（波长最小），触发计算
-    if (m_cmbLine->count() > 0) {
-        m_cmbLine->setCurrentIndex(0);
-        calculateAndDisplay();
+    if (!m_chkFilterEnable->isChecked()) {
+        m_lblPeakCount->setText(QString("检测到 %1 个峰值 (未过滤)").arg(m_allPeaks.size()));
+    } else if (m_detectedPeaks.isEmpty()) {
+        m_lblPeakCount->setText(QString("无符合过滤条件的峰值 (共检测到 %1 个)").arg(m_allPeaks.size()));
+    } else {
+        m_lblPeakCount->setText(QString("检测到 %1 个峰值 (过滤后 %2 个)")
+                                    .arg(m_allPeaks.size())
+                                    .arg(m_detectedPeaks.size()));
     }
+
+    emit filterChanged();
 }
 
 void MetadataPanel::setMetadata(const SpectrumMetadata &meta,
@@ -244,7 +342,6 @@ void MetadataPanel::setMetadata(const SpectrumMetadata &meta,
 {
     m_lblFileName->setText(fileName);
     m_lblDataPoints->setText(QString::number(dataPointCount));
-
     m_lblLaserVoltage->setText(QString::number(meta.laserVoltage) + " V");
     m_lblLaserFreq->setText(QString::number(meta.laserFrequency) + " Hz");
     m_lblLaserDivider->setText(QString::number(meta.laserDivider));
@@ -266,58 +363,9 @@ void MetadataPanel::clear()
     m_lblTriggerMode->setText("-");
     m_lblTriggerDelay->setText("-");
 
-    // 清除峰值列表
-    m_cmbLine->blockSignals(true);
+    m_allPeaks.clear();
+    m_allComputedValues.clear();
     m_cmbLine->clear();
-    m_cmbLine->blockSignals(false);
-    m_detectedPeaks.clear();
     m_lblPeakCount->setText("未检测到峰值");
-
-    // 清除分析结果
-    m_lblPeakWl->setText("-");
-    m_lblPeakInt->setText("-");
-    m_lblFwhm->setText("-");
-    m_lblHalfPeak->setText("-");
-    m_lblResult->setText("-");
-
     m_spectrumPoints.clear();
-}
-
-void MetadataPanel::onLineSelected(int /*index*/)
-{
-    if (!m_spectrumPoints.isEmpty() && !m_detectedPeaks.isEmpty()) {
-        calculateAndDisplay();
-    }
-}
-
-void MetadataPanel::calculateAndDisplay()
-{
-    if (m_spectrumPoints.isEmpty() || m_detectedPeaks.isEmpty()) {
-        return;
-    }
-
-    int comboIdx = m_cmbLine->currentIndex();
-    if (comboIdx < 0) return;
-
-    int peakIdx = m_cmbLine->currentData().toInt();
-    if (peakIdx < 0 || peakIdx >= m_detectedPeaks.size()) return;
-
-    const DetectedPeak &peak = m_detectedPeaks[peakIdx];
-    m_lastResult = SpectralAnalyzer::analyzePeak(m_spectrumPoints, peak);
-
-    if (m_lastResult.valid) {
-        m_lblPeakWl->setText(QString("%1 nm").arg(m_lastResult.foundPeakWl, 0, 'f', 2));
-        m_lblPeakInt->setText(QString::number(m_lastResult.peakIntensity, 'f', 2));
-        m_lblFwhm->setText(QString("%1 nm").arg(m_lastResult.fwhm, 0, 'f', 4));
-        m_lblHalfPeak->setText(QString::number(m_lastResult.halfMax, 'f', 2));
-        m_lblResult->setText(QString::number(m_lastResult.computedValue, 'f', 4));
-        m_lblResult->setStyleSheet("color: #1a73e8;");
-    } else {
-        m_lblPeakWl->setText(m_lastResult.errorMsg);
-        m_lblPeakInt->setText("-");
-        m_lblFwhm->setText("-");
-        m_lblHalfPeak->setText("-");
-        m_lblResult->setText(m_lastResult.errorMsg);
-        m_lblResult->setStyleSheet("color: #d93025;");
-    }
 }

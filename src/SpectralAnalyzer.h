@@ -39,7 +39,15 @@ public:
     struct SGParams {
         int windowSize = 7;   // 窗口大小（奇数），默认 7
         int polyOrder  = 2;   // 多项式阶数，默认 2（与 Origin 一致）
-        bool enabled   = true; // 是否启用平滑
+        bool enabled   = true;  // 是否启用平滑
+    };
+
+    /// 基线扣除参数（ALS 算法）
+    struct BLParams {
+        double lambda = 1e5;   // 平滑度，越大基线越平滑 (典型 1e2 ~ 1e9)
+        double p      = 0.01;  // 不对称性，峰上方点权重 (典型 0.001 ~ 0.1)
+        int    niter  = 10;    // 迭代次数
+        bool   enabled = true; // 是否启用去本底
     };
 
     static const QVector<LineDef> &predefinedLines();
@@ -65,6 +73,17 @@ public:
     /// @param peak    待分析的峰值
     static SpectralLineResult analyzePeak(const QVector<QPointF> &points,
                                            const DetectedPeak &peak);
+
+    /// 基线扣除（ALS 非对称最小二乘法）
+    /// @param points 光谱数据点
+    /// @param params 基线参数
+    /// @return 扣除基线后的数据点（波长不变，强度减去基线）
+    static QVector<QPointF> subtractBaseline(const QVector<QPointF> &points,
+                                               const BLParams &params);
+
+    /// 获取计算出的基线（用于可视化等）
+    static QVector<QPointF> computeBaseline(const QVector<QPointF> &points,
+                                              const BLParams &params);
 
     /// 对给定光谱数据，分析目标波长附近的峰（保留兼容）
     /// @param points  光谱数据点
