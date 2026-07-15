@@ -556,8 +556,18 @@ void MainWindow::onPeakBasedExport()
             continue;
         }
 
-        QVector<QPointF> pts = m_processedCache.value(path, data.points);
+        // 确保经过 S-G + 去本底 流水线处理
+        if (!m_processedCache.contains(path))
+            m_processedCache[path] = processPipeline(data.points);
+        QVector<QPointF> pts = m_processedCache.value(path);
         QVector<DetectedPeak> filePeaks = SpectralAnalyzer::detectPeaks(pts);
+
+        // 获取过滤条件
+        bool filterIntensity = m_metadataPanel->isFilterIntensityEnabled();
+        bool filterFWHM = m_metadataPanel->isFilterFWHMEnabled();
+        double minInt = m_metadataPanel->filterMinIntensity();
+        double minFH = m_metadataPanel->filterMinFWHM();
+        double maxFH = m_metadataPanel->filterMaxFWHM();
 
         for (double targetWl : selectedWavelengths) {
             const DetectedPeak *bestPeak = nullptr;
@@ -571,7 +581,10 @@ void MainWindow::onPeakBasedExport()
             }
 
             if (bestPeak) {
+                // 应用过滤条件
+                if (filterIntensity && bestPeak->intensity < minInt) { stream << ",,,"; continue; }
                 auto result = SpectralAnalyzer::analyzePeak(pts, *bestPeak);
+                if (filterFWHM && (result.computedValue < minFH || result.computedValue > maxFH)) { stream << ",,,"; continue; }
                 stream << "," << QString::number(bestPeak->wavelength, 'f', 2)
                        << "," << QString::number(bestPeak->intensity, 'f', 2)
                        << "," << QString::number(result.computedValue, 'f', 4);
