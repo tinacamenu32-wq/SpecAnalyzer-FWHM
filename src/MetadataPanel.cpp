@@ -195,7 +195,7 @@ void MetadataPanel::setupUi()
     m_cmbLine = new QComboBox(contentWidget);
     m_cmbLine->setMinimumWidth(280);
     lineLayout->addWidget(m_cmbLine, 1);
-    auto *btnExportPeaks = new QPushButton("导出所选峰值", contentWidget);
+    auto *btnExportPeaks = new QPushButton("导出所选峰值表", contentWidget);
     lineLayout->addWidget(btnExportPeaks);
     outerLayout->addLayout(lineLayout);
 

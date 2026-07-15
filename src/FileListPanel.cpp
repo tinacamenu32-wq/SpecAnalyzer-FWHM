@@ -6,6 +6,10 @@
 #include <QMessageBox>
 #include <QHBoxLayout>
 #include <QDirIterator>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QCheckBox>
+#include <QSet>
 
 FileListPanel::FileListPanel(QWidget *parent)
     : QWidget(parent)
@@ -20,7 +24,7 @@ FileListPanel::FileListPanel(QWidget *parent)
 
     // 文件列表
     m_fileList = new QListWidget(this);
-    m_fileList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_fileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_layout->addWidget(m_fileList);
 
     // 按钮行 1
@@ -33,7 +37,9 @@ FileListPanel::FileListPanel(QWidget *parent)
 
     // 按钮行 2
     auto *btnLayout2 = new QHBoxLayout();
-    m_exportBtn = new QPushButton("导出结果", this);
+    m_exportBtn = new QPushButton("导出峰值表", this);
+    m_removeBtn = new QPushButton("移除", this);
+    btnLayout2->addWidget(m_removeBtn);
     btnLayout2->addWidget(m_exportBtn);
     m_layout->addLayout(btnLayout2);
 
@@ -41,6 +47,7 @@ FileListPanel::FileListPanel(QWidget *parent)
     connect(m_importBtn, &QPushButton::clicked, this, &FileListPanel::onImportClicked);
     connect(m_importDirBtn, &QPushButton::clicked, this, &FileListPanel::onImportFolderClicked);
     connect(m_exportBtn, &QPushButton::clicked, this, &FileListPanel::onExportClicked);
+    connect(m_removeBtn, &QPushButton::clicked, this, &FileListPanel::onRemoveClicked);
     connect(m_fileList, &QListWidget::itemClicked, this, &FileListPanel::onItemClicked);
 }
 
@@ -117,6 +124,54 @@ void FileListPanel::onImportFolderClicked()
 void FileListPanel::onExportClicked()
 {
     emit exportRequested();
+}
+
+void FileListPanel::onRemoveClicked()
+{
+    if (m_fileList->count() == 0) return;
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("选择要移除的文件");
+    dlg.resize(400, 300);
+    auto *dlgLayout = new QVBoxLayout(&dlg);
+    auto *selectAllBtn = new QPushButton("全选", &dlg);
+    auto *deselectAllBtn = new QPushButton("取消全选", &dlg);
+    auto *topLayout = new QHBoxLayout();
+    topLayout->addWidget(selectAllBtn); topLayout->addWidget(deselectAllBtn); topLayout->addStretch();
+    dlgLayout->addLayout(topLayout);
+
+    QListWidget *listWidget = new QListWidget(&dlg);
+    QVector<QCheckBox*> checkBoxes;
+    for (int i = 0; i < m_fileList->count(); ++i) {
+        auto *item = new QListWidgetItem();
+        auto *cb = new QCheckBox(m_fileList->item(i)->text());
+        cb->setChecked(true);
+        cb->setProperty("row", i);
+        listWidget->addItem(item);
+        listWidget->setItemWidget(item, cb);
+        checkBoxes.append(cb);
+    }
+    dlgLayout->addWidget(listWidget);
+
+    connect(selectAllBtn, &QPushButton::clicked, &dlg, [&]() { for (auto *cb : checkBoxes) cb->setChecked(true); });
+    connect(deselectAllBtn, &QPushButton::clicked, &dlg, [&]() { for (auto *cb : checkBoxes) cb->setChecked(false); });
+
+    auto *btnBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    btnBox->button(QDialogButtonBox::Ok)->setText("移除");
+    btnBox->button(QDialogButtonBox::Cancel)->setText("取消");
+    dlgLayout->addWidget(btnBox);
+    connect(btnBox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btnBox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    // 从后往前删，避免索引错位
+    QSet<int> toRemove;
+    for (auto *cb : checkBoxes)
+        if (cb->isChecked()) toRemove.insert(cb->property("row").toInt());
+
+    for (int i = m_fileList->count() - 1; i >= 0; --i)
+        if (toRemove.contains(i))
+            delete m_fileList->takeItem(i);
 }
 
 void FileListPanel::onItemClicked(QListWidgetItem *item)

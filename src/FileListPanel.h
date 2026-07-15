@@ -25,6 +25,7 @@ private slots:
     void onImportClicked();
     void onImportFolderClicked();
     void onExportClicked();
+    void onRemoveClicked();
     void onItemClicked(QListWidgetItem *item);
 
 private:
@@ -32,5 +33,6 @@ private:
     QPushButton  *m_importBtn    = nullptr;
     QPushButton  *m_importDirBtn = nullptr;
     QPushButton  *m_exportBtn    = nullptr;
+    QPushButton  *m_removeBtn    = nullptr;
     QVBoxLayout  *m_layout       = nullptr;
 };

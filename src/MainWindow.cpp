@@ -209,190 +209,160 @@ void MainWindow::onExportResults()
         return;
     }
 
-    // --- 弹出文件选择对话框 ---
+    // --- 文件选择 ---
     QDialog dlg(this);
     dlg.setWindowTitle("选择要导出的文件");
     dlg.resize(450, 350);
-
     auto *dlgLayout = new QVBoxLayout(&dlg);
-
     auto *selectAllBtn = new QPushButton("全选", &dlg);
     auto *deselectAllBtn = new QPushButton("取消全选", &dlg);
     auto *topBtnLayout = new QHBoxLayout();
-    topBtnLayout->addWidget(selectAllBtn);
-    topBtnLayout->addWidget(deselectAllBtn);
-    topBtnLayout->addStretch();
+    topBtnLayout->addWidget(selectAllBtn); topBtnLayout->addWidget(deselectAllBtn); topBtnLayout->addStretch();
     dlgLayout->addLayout(topBtnLayout);
-
     QListWidget *listWidget = new QListWidget(&dlg);
     QVector<QCheckBox*> checkBoxes;
     for (const QString &path : allPaths) {
-        QString name = QFileInfo(path).fileName();
         auto *item = new QListWidgetItem();
-        auto *cb = new QCheckBox(name);
-        cb->setChecked(true);
-        cb->setProperty("filePath", path);
-        listWidget->addItem(item);
-        listWidget->setItemWidget(item, cb);
+        auto *cb = new QCheckBox(QFileInfo(path).fileName());
+        cb->setChecked(true); cb->setProperty("filePath", path);
+        listWidget->addItem(item); listWidget->setItemWidget(item, cb);
         checkBoxes.append(cb);
     }
     dlgLayout->addWidget(listWidget);
-
-    connect(selectAllBtn, &QPushButton::clicked, &dlg, [&]() {
-        for (auto *cb : checkBoxes) cb->setChecked(true);
-    });
-    connect(deselectAllBtn, &QPushButton::clicked, &dlg, [&]() {
-        for (auto *cb : checkBoxes) cb->setChecked(false);
-    });
-
+    connect(selectAllBtn, &QPushButton::clicked, &dlg, [&]() { for (auto *cb : checkBoxes) cb->setChecked(true); });
+    connect(deselectAllBtn, &QPushButton::clicked, &dlg, [&]() { for (auto *cb : checkBoxes) cb->setChecked(false); });
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     buttonBox->button(QDialogButtonBox::Ok)->setText("导出");
     buttonBox->button(QDialogButtonBox::Cancel)->setText("取消");
     dlgLayout->addWidget(buttonBox);
     connect(buttonBox, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted) return;
 
-    if (dlg.exec() != QDialog::Accepted)
-        return;
-
-    // 收集勾选的文件
     QStringList filePaths;
-    for (auto *cb : checkBoxes) {
-        if (cb->isChecked())
-            filePaths.append(cb->property("filePath").toString());
-    }
+    for (auto *cb : checkBoxes)
+        if (cb->isChecked()) filePaths.append(cb->property("filePath").toString());
+    if (filePaths.isEmpty()) { QMessageBox::information(this, "导出", "没有选中任何文件。"); return; }
 
-    if (filePaths.isEmpty()) {
-        QMessageBox::information(this, "导出", "没有选中任何文件。");
-        return;
-    }
+    QString savePath = QFileDialog::getSaveFileName(this, "导出峰值表", QString(), "CSV 文件 (*.csv)");
+    if (savePath.isEmpty()) return;
 
-    // 选择保存位置
-    QString savePath = QFileDialog::getSaveFileName(
-        this,
-        "导出所有峰值 FWHM 分析结果",
-        QString(),
-        "CSV 文件 (*.csv)");
-    if (savePath.isEmpty())
-        return;
-
-    // 进度对话框
-    QProgressDialog progress("正在分析峰值...", "取消", 0, filePaths.size(), this);
+    QProgressDialog progress("正在分析...", "取消", 0, filePaths.size(), this);
     progress.setWindowModality(Qt::WindowModal);
-    progress.setMinimumDuration(0);
 
-    // 构建 CSV 内容（宽格式：每文件一行，列 = 各峰波长+FWHM）
+    // 收集过滤条件
+    bool filterIntensity = m_metadataPanel->isFilterIntensityEnabled();
+    bool filterFWHM = m_metadataPanel->isFilterFWHMEnabled();
+    double minInt = m_metadataPanel->filterMinIntensity();
+    double minFH = m_metadataPanel->filterMinFWHM();
+    double maxFH = m_metadataPanel->filterMaxFWHM();
+
+    // 聚类：收集所有文件通过过滤的峰波长
+    QVector<double> allWls;
+    for (const QString &path : filePaths) {
+        ensureFileParsed(path);
+        if (!m_dataCache[path].isValid()) continue;
+        if (!m_processedCache.contains(path))
+            m_processedCache[path] = processPipeline(m_dataCache[path].points);
+        auto peaks = SpectralAnalyzer::detectPeaks(m_processedCache[path]);
+        for (const auto &p : peaks) {
+            if (filterIntensity && p.intensity < minInt) continue;
+            auto r = SpectralAnalyzer::analyzePeak(m_processedCache[path], p);
+            if (filterFWHM && (r.computedValue < minFH || r.computedValue > maxFH)) continue;
+            allWls.append(p.wavelength);
+        }
+    }
+
+    std::sort(allWls.begin(), allWls.end());
+    QVector<double> groupWls;
+    for (double wl : allWls) {
+        if (groupWls.isEmpty() || wl - groupWls.last() > 0.5)
+            groupWls.append(wl);
+        else
+            groupWls.last() = (groupWls.last() + wl) / 2.0;
+    }
+
+    if (groupWls.isEmpty()) { QMessageBox::information(this, "导出", "未检测到符合过滤条件的峰值。"); return; }
+
+    // 逐文件匹配
     QString csv;
     QTextStream stream(&csv);
+    stream << "文件名";
+    for (double wl : groupWls) stream << ",波长(nm),强度,半高宽";
+    stream << "\n";
 
-    // 先收集所有文件的峰值信息（用于构建统一表头）
-    struct PeakInfo {
-        double wavelength;
-        double intensity;
-        double computedValue; // FWHM × 半峰
-    };
-    QVector<QPair<QString, QVector<PeakInfo>>> allResults; // (fileName, peaks)
-
-    int totalPeaks = 0;
-    int maxPeakCount = 0;
+    int totalFound = 0;
+    QVector<QVector<double>> fwhmValues(groupWls.size());
 
     for (int i = 0; i < filePaths.size(); ++i) {
-        if (progress.wasCanceled())
-            break;
-
+        if (progress.wasCanceled()) break;
         const QString &path = filePaths[i];
-        progress.setLabelText(QString("正在分析: %1").arg(QFileInfo(path).fileName()));
         progress.setValue(i);
         QApplication::processEvents();
 
-        ensureFileParsed(path);
         const SpectrumData &data = m_dataCache[path];
-        QString fileName = QFileInfo(path).fileName();
-
-        QVector<PeakInfo> peakInfos;
-        if (data.isValid()) {
-            QVector<QPointF> pts = m_processedCache.value(path, data.points);
-            QVector<DetectedPeak> peaks = SpectralAnalyzer::detectPeaks(pts);
-
-            // 应用峰值过滤
-            bool filterIntensity = m_metadataPanel->isFilterIntensityEnabled();
-            bool filterFWHM = m_metadataPanel->isFilterFWHMEnabled();
-            double minInt = m_metadataPanel->filterMinIntensity();
-            double minFH = m_metadataPanel->filterMinFWHM();
-            double maxFH = m_metadataPanel->filterMaxFWHM();
-
-            for (const auto &peak : peaks) {
-                auto result = SpectralAnalyzer::analyzePeak(pts, peak);
-                double v = result.computedValue;
-                if (filterIntensity && peak.intensity < minInt) continue;
-                if (filterFWHM && (v < minFH || v > maxFH)) continue;
-                    continue;
-                PeakInfo info;
-                info.wavelength    = peak.wavelength;
-                info.intensity     = peak.intensity;
-                info.computedValue = v;
-                peakInfos.append(info);
-            }
-            totalPeaks += peakInfos.size();
+        stream << "\"" << QFileInfo(path).fileName() << "\"";
+        if (!data.isValid()) {
+            for (int j = 0; j < groupWls.size(); ++j) stream << ",,,";
+            stream << "\n"; continue;
         }
+        if (!m_processedCache.contains(path))
+            m_processedCache[path] = processPipeline(data.points);
+        QVector<QPointF> pts = m_processedCache.value(path);
+        QVector<DetectedPeak> filePeaks = SpectralAnalyzer::detectPeaks(pts);
 
-        allResults.append({fileName, peakInfos});
-        if (peakInfos.size() > maxPeakCount)
-            maxPeakCount = peakInfos.size();
-    }
-
-    // 写表头
-    stream << "文件名";
-    for (int j = 0; j < maxPeakCount; ++j) {
-        stream << QString(",峰值%1_波长(nm),峰值%1_强度,峰值%1_半高宽").arg(j + 1);
-    }
-    stream << "\n";
-
-    // 写数据行：每文件一行
-    for (const auto &[fileName, peakInfos] : allResults) {
-        stream << "\"" << fileName << "\"";
-        if (peakInfos.isEmpty()) {
-            for (int j = 0; j < maxPeakCount; ++j)
-                stream << ",,,";
-        } else {
-            for (const auto &info : peakInfos) {
-                stream << "," << QString::number(info.wavelength, 'f', 2);
-                stream << "," << QString::number(info.intensity, 'f', 2);
-                stream << "," << QString::number(info.computedValue, 'f', 4);
+        for (int j = 0; j < groupWls.size(); ++j) {
+            const DetectedPeak *bestPeak = nullptr;
+            double bestDist = 0.5;
+            for (const auto &p : filePeaks) {
+                double dist = std::abs(p.wavelength - groupWls[j]);
+                if (dist < bestDist) { bestDist = dist; bestPeak = &p; }
             }
-            // 补齐不足 maxPeakCount 的列
-            for (int j = peakInfos.size(); j < maxPeakCount; ++j)
-                stream << ",,,";
+            if (bestPeak) {
+                if (filterIntensity && bestPeak->intensity < minInt) { stream << ",,,"; continue; }
+                auto result = SpectralAnalyzer::analyzePeak(pts, *bestPeak);
+                if (filterFWHM && (result.computedValue < minFH || result.computedValue > maxFH)) { stream << ",,,"; continue; }
+                stream << "," << QString::number(bestPeak->wavelength, 'f', 2)
+                       << "," << QString::number(bestPeak->intensity, 'f', 2)
+                       << "," << QString::number(result.computedValue, 'f', 4);
+                fwhmValues[j].append(result.computedValue);
+                ++totalFound;
+            } else { stream << ",,,"; }
         }
         stream << "\n";
     }
 
-    int successCount = allResults.size();
-
-    progress.setValue(filePaths.size());
-
-    // 写入文件
-    QFile file(savePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, "导出失败",
-                             QString("无法写入文件:\n%1").arg(savePath));
-        return;
+    // RSD 行
+    {
+        QStringList rsdCols; rsdCols << "RSD(%)";
+        for (int j = 0; j < groupWls.size(); ++j) {
+            const auto &vals = fwhmValues[j];
+            rsdCols << "" << "";
+            if (vals.size() < 2) {
+                rsdCols << "";
+            } else {
+                double sum = 0; for (double v : vals) sum += v;
+                double mean = sum / vals.size();
+                double sqSum = 0; for (double v : vals) sqSum += (v - mean) * (v - mean);
+                double stdDev = std::sqrt(sqSum / (vals.size() - 1));
+                rsdCols << QString::number((stdDev / mean) * 100.0, 'f', 2);
+            }
+        }
+        stream << rsdCols.join(",") << "\n";
     }
 
-    QTextStream fileStream(&file);
-    fileStream.setEncoding(QStringConverter::Utf8);
-    fileStream << QChar(0xFEFF);
-    fileStream << csv;
+    progress.setValue(filePaths.size());
+    QFile file(savePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "导出失败", QString("无法写入文件:\n%1").arg(savePath));
+        return;
+    }
+    QTextStream fileStream(&file); fileStream.setEncoding(QStringConverter::Utf8);
+    fileStream << QChar(0xFEFF) << csv;
     file.close();
 
-    statusBar()->showMessage(QString("已导出 %1 个文件共 %2 个峰值 → %3")
-                                 .arg(successCount)
-                                 .arg(totalPeaks)
-                                 .arg(savePath));
-    QMessageBox::information(this, "导出完成",
-                             QString("成功导出 %1 个文件，共 %2 个峰值的 FWHM 分析结果。")
-                                 .arg(successCount)
-                                 .arg(totalPeaks));
+    statusBar()->showMessage(QString("已导出 %1 个文件 → %2").arg(filePaths.size()).arg(savePath));
+    QMessageBox::information(this, "导出完成", QString("成功导出 %1 个文件，共 %2 条记录。").arg(filePaths.size()).arg(totalFound));
 }
 
 void MainWindow::onPeakBasedExport()
@@ -536,6 +506,9 @@ void MainWindow::onPeakBasedExport()
     const double searchWindow = 0.5;
     int totalFound = 0;
 
+    // 收集每个峰在所有文件中的半高宽值，用于计算 RSD
+    QVector<QVector<double>> fwhmValues(selectedWavelengths.size());
+
     for (int i = 0; i < filePaths.size(); ++i) {
         if (progress.wasCanceled()) break;
         const QString &path = filePaths[i];
@@ -556,20 +529,19 @@ void MainWindow::onPeakBasedExport()
             continue;
         }
 
-        // 确保经过 S-G + 去本底 流水线处理
         if (!m_processedCache.contains(path))
             m_processedCache[path] = processPipeline(data.points);
         QVector<QPointF> pts = m_processedCache.value(path);
         QVector<DetectedPeak> filePeaks = SpectralAnalyzer::detectPeaks(pts);
 
-        // 获取过滤条件
         bool filterIntensity = m_metadataPanel->isFilterIntensityEnabled();
         bool filterFWHM = m_metadataPanel->isFilterFWHMEnabled();
         double minInt = m_metadataPanel->filterMinIntensity();
         double minFH = m_metadataPanel->filterMinFWHM();
         double maxFH = m_metadataPanel->filterMaxFWHM();
 
-        for (double targetWl : selectedWavelengths) {
+        for (int j = 0; j < selectedWavelengths.size(); ++j) {
+            double targetWl = selectedWavelengths[j];
             const DetectedPeak *bestPeak = nullptr;
             double bestDist = searchWindow;
             for (const auto &p : filePeaks) {
@@ -581,19 +553,42 @@ void MainWindow::onPeakBasedExport()
             }
 
             if (bestPeak) {
-                // 应用过滤条件
                 if (filterIntensity && bestPeak->intensity < minInt) { stream << ",,,"; continue; }
                 auto result = SpectralAnalyzer::analyzePeak(pts, *bestPeak);
                 if (filterFWHM && (result.computedValue < minFH || result.computedValue > maxFH)) { stream << ",,,"; continue; }
                 stream << "," << QString::number(bestPeak->wavelength, 'f', 2)
                        << "," << QString::number(bestPeak->intensity, 'f', 2)
                        << "," << QString::number(result.computedValue, 'f', 4);
+                fwhmValues[j].append(result.computedValue);
                 ++totalFound;
             } else {
                 stream << ",,,";
             }
         }
         stream << "\n";
+    }
+
+    // RSD 行：每个峰占 3 列，RSD 放在第 3 列（半高宽）
+    {
+        QStringList rsdCols;
+        rsdCols << "RSD(%)";
+        for (int j = 0; j < selectedWavelengths.size(); ++j) {
+            const auto &vals = fwhmValues[j];
+            rsdCols << "" << ""; // 波长、强度为空
+            if (vals.size() < 2) {
+                rsdCols << ""; // 半高宽为空
+            } else {
+                double sum = 0;
+                for (double v : vals) sum += v;
+                double mean = sum / vals.size();
+                double sqSum = 0;
+                for (double v : vals) sqSum += (v - mean) * (v - mean);
+                double stdDev = std::sqrt(sqSum / (vals.size() - 1));
+                double rsd = (stdDev / mean) * 100.0;
+                rsdCols << QString::number(rsd, 'f', 2);
+            }
+        }
+        stream << rsdCols.join(",") << "\n";
     }
 
     progress.setValue(filePaths.size());
