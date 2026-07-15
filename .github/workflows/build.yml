@@ -26,7 +26,8 @@ jobs:
 
       - name: Deploy
         run: |
-          windeployqt build/Release/SpecAnalyzer.exe
+          & "$env:Qt6_DIR/bin/windeployqt.exe" build/Release/SpecAnalyzer.exe
+        shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
