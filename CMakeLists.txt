@@ -7,8 +7,12 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Point to Homebrew Qt 6 on Apple Silicon
-set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/qt" CACHE STRING "Qt6 install prefix")
+# Qt6 install prefix (override with -DCMAKE_PREFIX_PATH on your system)
+if(NOT CMAKE_PREFIX_PATH)
+    if(APPLE)
+        set(CMAKE_PREFIX_PATH "/opt/homebrew/opt/qt" CACHE STRING "Qt6 install prefix")
+    endif()
+endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS
     Core
