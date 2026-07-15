@@ -25,6 +25,9 @@ public:
     /// 设置数据加载时的原始坐标范围
     void setOriginalRange(double xMin, double xMax, double yMin, double yMax);
 
+signals:
+    void viewChanged();
+
 protected:
     void wheelEvent(QWheelEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
@@ -72,4 +75,5 @@ private:
     // 编号标签
     QVector<QGraphicsTextItem *> m_peakLabels;
     QVector<QPointF>             m_peakPositions; // 峰坐标 (wl, intensity)
+    bool m_updatingLabels = false;
 };

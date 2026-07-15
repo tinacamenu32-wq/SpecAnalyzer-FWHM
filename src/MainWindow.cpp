@@ -315,7 +315,8 @@ void MainWindow::onExportResults()
             QVector<DetectedPeak> peaks = SpectralAnalyzer::detectPeaks(pts);
 
             // 应用峰值过滤
-            bool filterOn = m_metadataPanel->isFilterEnabled();
+            bool filterIntensity = m_metadataPanel->isFilterIntensityEnabled();
+            bool filterFWHM = m_metadataPanel->isFilterFWHMEnabled();
             double minInt = m_metadataPanel->filterMinIntensity();
             double minFH = m_metadataPanel->filterMinFWHM();
             double maxFH = m_metadataPanel->filterMaxFWHM();
@@ -323,7 +324,8 @@ void MainWindow::onExportResults()
             for (const auto &peak : peaks) {
                 auto result = SpectralAnalyzer::analyzePeak(pts, peak);
                 double v = result.computedValue;
-                if (filterOn && (peak.intensity < minInt || v < minFH || v > maxFH))
+                if (filterIntensity && peak.intensity < minInt) continue;
+                if (filterFWHM && (v < minFH || v > maxFH)) continue;
                     continue;
                 PeakInfo info;
                 info.wavelength    = peak.wavelength;

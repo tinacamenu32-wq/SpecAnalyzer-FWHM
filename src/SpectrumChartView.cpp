@@ -49,13 +49,14 @@ void ZoomableChartView::wheelEvent(QWheelEvent *event)
 {
     QPointF chartPos = chart()->mapToValue(event->position());
 
-    const double factor = (event->angleDelta().y() > 0) ? 1.08 : (1.0 / 1.08);
+    const double factor = (event->angleDelta().y() > 0) ? 1.03 : (1.0 / 1.03);
 
     // 滚轮 → X 轴，Shift+滚轮 → Y 轴
     double fx = (event->modifiers() & Qt::ShiftModifier) ? 1.0 : factor;
     double fy = (event->modifiers() & Qt::ShiftModifier) ? factor : 1.0;
 
     applyZoom(chartPos, fx, fy);
+    emit viewChanged();
     event->accept();
 }
 
@@ -116,6 +117,7 @@ void ZoomableChartView::mouseMoveEvent(QMouseEvent *event)
         }
 
         m_lastPanPos = event->position();
+        emit viewChanged();
         event->accept();
         return;
     }
@@ -137,6 +139,7 @@ void ZoomableChartView::mouseDoubleClickEvent(QMouseEvent *event)
 {
     Q_UNUSED(event);
     resetZoom();
+    emit viewChanged();
 }
 
 // ==================== SpectrumChartView ====================
@@ -189,8 +192,8 @@ void SpectrumChartView::setupChart()
 
     m_chartView = new ZoomableChartView(m_chart, this);
 
-    // 缩放/平移后更新标签位置
-    connect(m_chart, &QChart::plotAreaChanged, this, &SpectrumChartView::updatePeakLabels);
+    // 缩放/平移/复位后更新标签位置
+    connect(m_chartView, &ZoomableChartView::viewChanged, this, &SpectrumChartView::updatePeakLabels);
 }
 
 void SpectrumChartView::setSpectrumData(const SpectrumData &data)
@@ -261,6 +264,9 @@ void SpectrumChartView::setPeakMarkers(const QVector<DetectedPeak> &peaks)
 
 void SpectrumChartView::updatePeakLabels()
 {
+    if (m_updatingLabels) return; // 防止递归
+    m_updatingLabels = true;
+
     // 清除旧标签
     for (auto *label : m_peakLabels) {
         if (label->scene())
@@ -269,7 +275,7 @@ void SpectrumChartView::updatePeakLabels()
     }
     m_peakLabels.clear();
 
-    if (m_peakPositions.isEmpty()) return;
+    if (m_peakPositions.isEmpty()) { m_updatingLabels = false; return; }
 
     // 计算标签偏移：Y轴范围的一小部分
     double yRange = m_axisY->max() - m_axisY->min();
@@ -295,4 +301,6 @@ void SpectrumChartView::updatePeakLabels()
         m_chart->scene()->addItem(label);
         m_peakLabels.append(label);
     }
+
+    m_updatingLabels = false;
 }

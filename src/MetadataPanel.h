@@ -36,7 +36,8 @@ public:
     SpectralAnalyzer::BLParams blParams() const;
 
     /// 峰值过滤是否启用
-    bool isFilterEnabled() const { return m_chkFilterEnable && m_chkFilterEnable->isChecked(); }
+    bool isFilterIntensityEnabled() const { return m_chkFilterIntensity && m_chkFilterIntensity->isChecked(); }
+    bool isFilterFWHMEnabled() const { return m_chkFilterFWHM && m_chkFilterFWHM->isChecked(); }
     double filterMinIntensity() const { return m_spinMinIntensity ? m_spinMinIntensity->value() : 0; }
     double filterMinFWHM() const { return m_spinMinFWHM ? m_spinMinFWHM->value() : 0; }
     double filterMaxFWHM() const { return m_spinMaxFWHM ? m_spinMaxFWHM->value() : 9999; }
@@ -80,7 +81,8 @@ private:
     QDoubleSpinBox *m_spinP        = nullptr;
 
     // --- 峰值过滤 ---
-    QCheckBox      *m_chkFilterEnable = nullptr;
+    QCheckBox      *m_chkFilterIntensity = nullptr;
+    QCheckBox      *m_chkFilterFWHM      = nullptr;
     QDoubleSpinBox *m_spinMinIntensity = nullptr;
     QDoubleSpinBox *m_spinMinFWHM  = nullptr;
     QDoubleSpinBox *m_spinMaxFWHM  = nullptr;

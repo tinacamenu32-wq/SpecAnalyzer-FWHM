@@ -144,10 +144,10 @@ void MetadataPanel::setupUi()
     outerLayout->addWidget(separator1d);
 
     auto *filterLayout = new QHBoxLayout();
-    m_chkFilterEnable = new QCheckBox("启用", contentWidget);
-    m_chkFilterEnable->setChecked(true);
-    filterLayout->addWidget(m_chkFilterEnable);
-    filterLayout->addWidget(new QLabel("最低强度:", contentWidget));
+    m_chkFilterIntensity = new QCheckBox("强度", contentWidget);
+    m_chkFilterIntensity->setChecked(true);
+    filterLayout->addWidget(m_chkFilterIntensity);
+    filterLayout->addWidget(new QLabel("≥:", contentWidget));
     m_spinMinIntensity = new QDoubleSpinBox(contentWidget);
     m_spinMinIntensity->setRange(0, 1e12);
     m_spinMinIntensity->setDecimals(0);
@@ -155,7 +155,10 @@ void MetadataPanel::setupUi()
     m_spinMinIntensity->setToolTip("过滤掉强度低于此值的噪声峰");
     filterLayout->addWidget(m_spinMinIntensity);
 
-    filterLayout->addWidget(new QLabel("半高宽范围:", contentWidget));
+    m_chkFilterFWHM = new QCheckBox("半高宽", contentWidget);
+    m_chkFilterFWHM->setChecked(true);
+    filterLayout->addWidget(m_chkFilterFWHM);
+    filterLayout->addWidget(new QLabel(":", contentWidget));
     m_spinMinFWHM = new QDoubleSpinBox(contentWidget);
     m_spinMinFWHM->setRange(0, 1e12);
     m_spinMinFWHM->setDecimals(4);
@@ -211,7 +214,8 @@ void MetadataPanel::setupUi()
     connect(m_chkBLEnable, &QCheckBox::toggled, this, &MetadataPanel::onBLSettingsChanged);
     connect(m_spinLambda, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::onBLSettingsChanged);
     connect(m_spinP, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::onBLSettingsChanged);
-    connect(m_chkFilterEnable, &QCheckBox::toggled, this, &MetadataPanel::applyFilter);
+    connect(m_chkFilterIntensity, &QCheckBox::toggled, this, &MetadataPanel::applyFilter);
+    connect(m_chkFilterFWHM, &QCheckBox::toggled, this, &MetadataPanel::applyFilter);
     connect(m_spinMinIntensity, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::applyFilter);
     connect(m_spinMinFWHM, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::applyFilter);
     connect(m_spinMaxFWHM, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &MetadataPanel::applyFilter);
@@ -281,8 +285,8 @@ void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
 
 void MetadataPanel::applyFilter()
 {
-    // 未启用过滤则显示全部
-    if (!m_chkFilterEnable->isChecked()) {
+    // 未启用任何过滤则显示全部
+    if (!m_chkFilterIntensity->isChecked() && !m_chkFilterFWHM->isChecked()) {
         m_detectedPeaks = m_allPeaks;
         m_peakComputedValues = m_allComputedValues;
         updateComboBox();
@@ -292,17 +296,18 @@ void MetadataPanel::applyFilter()
     double minInt = m_spinMinIntensity->value();
     double minFWHM = m_spinMinFWHM->value();
     double maxFWHM = m_spinMaxFWHM->value();
+    bool filterIntensity = m_chkFilterIntensity->isChecked();
+    bool filterFWHM = m_chkFilterFWHM->isChecked();
 
-    // 过滤
     m_detectedPeaks.clear();
     m_peakComputedValues.clear();
     for (int i = 0; i < m_allPeaks.size(); ++i) {
         const auto &p = m_allPeaks[i];
         double v = m_allComputedValues[i];
-        if (p.intensity >= minInt && v >= minFWHM && v <= maxFWHM) {
-            m_detectedPeaks.append(p);
-            m_peakComputedValues.append(v);
-        }
+        if (filterIntensity && p.intensity < minInt) continue;
+        if (filterFWHM && (v < minFWHM || v > maxFWHM)) continue;
+        m_detectedPeaks.append(p);
+        m_peakComputedValues.append(v);
     }
 
     updateComboBox();
@@ -323,7 +328,7 @@ void MetadataPanel::updateComboBox()
     }
     m_cmbLine->blockSignals(false);
 
-    if (!m_chkFilterEnable->isChecked()) {
+    if (!m_chkFilterIntensity->isChecked() && !m_chkFilterFWHM->isChecked()) {
         m_lblPeakCount->setText(QString("检测到 %1 个峰值 (未过滤)").arg(m_allPeaks.size()));
     } else if (m_detectedPeaks.isEmpty()) {
         m_lblPeakCount->setText(QString("无符合过滤条件的峰值 (共检测到 %1 个)").arg(m_allPeaks.size()));
