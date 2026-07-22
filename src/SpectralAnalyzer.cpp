@@ -5,6 +5,9 @@
 
 // ========== Savitzky-Golay 平滑 ==========
 
+// 前向声明
+static QVector<double> computeSGCoeffsDeriv(int windowSize, int polyOrder, int derivativeOrder);
+
 /// 用高斯消元法解 Ax = b，返回 x
 static QVector<double> solveLinearSystem(QVector<QVector<double>> A, QVector<double> b)
 {
@@ -43,8 +46,15 @@ static QVector<double> solveLinearSystem(QVector<QVector<double>> A, QVector<dou
 
 static QVector<double> computeSGCoeffs(int windowSize, int polyOrder)
 {
-    if (windowSize % 2 == 0) windowSize += 1; // 确保奇数
+    return computeSGCoeffsDeriv(windowSize, polyOrder, 0);
+}
+
+/// 通用 SG 系数：derivativeOrder=0 平滑, =1 一阶导数, =2 二阶导数
+static QVector<double> computeSGCoeffsDeriv(int windowSize, int polyOrder, int derivativeOrder)
+{
+    if (windowSize % 2 == 0) windowSize += 1;
     if (polyOrder >= windowSize) polyOrder = windowSize - 1;
+    if (derivativeOrder > polyOrder) derivativeOrder = polyOrder;
 
     const int halfWin = windowSize / 2;
     const int nCols   = polyOrder + 1;
@@ -67,15 +77,16 @@ static QVector<double> computeSGCoeffs(int windowSize, int polyOrder)
             for (int k = 0; k < windowSize; ++k)
                 ATA[i][j] += A[k][i] * A[k][j];
 
-    // 对于每个窗口位置，我们需要系数向量 c 使得 smoothed = sum(c_k * y_k)
-    // c 是 A * (A^T A)^{-1} 的中心行（halfWin 行）
-    // 等价于求解 (A^T A) c_raw = e0（只关心中心点）
-    QVector<double> e0(nCols, 0.0);
-    e0[0] = 1.0; // e0 = [1, 0, 0, ...], 提取第 0 阶系数（平滑值，非导数）
+    // e_d: 提取第 d 阶导数（e_d[d] = d!, 其余为 0）
+    QVector<double> ed(nCols, 0.0);
+    ed[derivativeOrder] = 1.0;
+    // 乘以 d!
+    for (int k = 2; k <= derivativeOrder; ++k)
+        ed[derivativeOrder] *= k;
 
-    QVector<double> rawCoeffs = solveLinearSystem(ATA, e0);
+    QVector<double> rawCoeffs = solveLinearSystem(ATA, ed);
 
-    // 完整系数: c[i] = rawCoeffs · A[i]  (A[i] 是第 i 行的设计向量)
+    // 完整系数: c[i] = rawCoeffs · A[i]
     QVector<double> coeffs(windowSize);
     for (int i = 0; i < windowSize; ++i) {
         double sum = 0.0;
@@ -132,6 +143,53 @@ QVector<QPointF> SpectralAnalyzer::savitzkyGolay(const QVector<QPointF> &points,
         result[i] = QPointF(points[i].x(), smoothed[i]);
 
     return result;
+}
+
+// ========== SG 导数计算 ==========
+
+QVector<double> SpectralAnalyzer::computeSGDerivative(const QVector<QPointF> &points,
+                                                        int windowSize,
+                                                        int polyOrder,
+                                                        int derivativeOrder)
+{
+    const int n = points.size();
+    QVector<double> deriv(n, 0.0);
+
+    if (n < windowSize || derivativeOrder < 0 || derivativeOrder > 2)
+        return deriv;
+
+    // 计算导数系数
+    QVector<double> coeffs = computeSGCoeffsDeriv(windowSize, polyOrder, derivativeOrder);
+    const int halfWin = windowSize / 2;
+
+    // 提取 Y 值
+    QVector<double> y(n);
+    for (int i = 0; i < n; ++i)
+        y[i] = points[i].y();
+
+    for (int i = 0; i < n; ++i) {
+        if (i < halfWin || i >= n - halfWin) {
+            // 边缘：用非对称窗口
+            int localHalf = std::min({i, n - 1 - i, halfWin});
+            int localSize = 2 * localHalf + 1;
+            QVector<double> localCoeffs = computeSGCoeffsDeriv(
+                localSize, std::min(polyOrder, localSize - 1), derivativeOrder);
+            int localHalfW = localSize / 2;
+
+            double sum = 0.0;
+            for (int j = -localHalfW; j <= localHalfW; ++j)
+                sum += localCoeffs[j + localHalfW] * y[i + j];
+            deriv[i] = sum;
+        } else {
+            // 中心区域：直接卷积
+            double sum = 0.0;
+            for (int j = -halfWin; j <= halfWin; ++j)
+                sum += coeffs[j + halfWin] * y[i + j];
+            deriv[i] = sum;
+        }
+    }
+
+    return deriv;
 }
 
 // ========== ALS 基线扣除 ==========
@@ -301,28 +359,160 @@ const QVector<SpectralAnalyzer::LineDef> &SpectralAnalyzer::predefinedLines()
     return lines;
 }
 
-// ========== 自动峰值检测 ==========
+// ========== 二阶导数法峰值检测（参照 Origin Peak Analyzer）==========
+
+QVector<DetectedPeak> SpectralAnalyzer::detectPeaks2ndDeriv(const QVector<QPointF> &points,
+                                                               double minHeight,
+                                                               int smoothWindow,
+                                                               int polyOrder)
+{
+    QVector<DetectedPeak> peaks;
+    const int n = points.size();
+    if (n < smoothWindow + 3) return peaks;
+
+    // ---- 自动最小峰高 ----
+    if (minHeight <= 0.0) {
+        double maxInt = 0.0;
+        for (const auto &p : points) {
+            if (p.y() > maxInt) maxInt = p.y();
+        }
+        minHeight = maxInt * 0.01; // 默认最大强度的 1%
+        if (minHeight < 1e-12) minHeight = 1e-12;
+    }
+
+    // ---- 第 1 步：计算二阶导数 ----
+    QVector<double> d2y = computeSGDerivative(points, smoothWindow, polyOrder, 2);
+
+    // ---- 第 2 步：找到二阶导数为负的连续区域 ----
+    struct NegRegion {
+        int start, end;   // [start, end] 闭区间
+        int minIdx;       // d2y 最小值位置
+        double minD2Y;    // d2y 最小值
+    };
+    QVector<NegRegion> regions;
+
+    int i = 0;
+    while (i < n) {
+        // 跳过非负区域
+        while (i < n && d2y[i] >= 0.0) ++i;
+        if (i >= n) break;
+
+        int regionStart = i;
+        double minD2 = d2y[i];
+        int minIdx = i;
+
+        // 扫描整个负区域
+        while (i < n && d2y[i] < 0.0) {
+            if (d2y[i] < minD2) {
+                minD2 = d2y[i];
+                minIdx = i;
+            }
+            ++i;
+        }
+        int regionEnd = i - 1;
+
+        // 负区域至少 2 个连续点，且二阶导数足够负（排除噪声）
+        if (regionEnd - regionStart >= 1 && minD2 < -10.0) {
+            regions.append({regionStart, regionEnd, minIdx, minD2});
+        }
+    }
+
+    if (regions.isEmpty()) return peaks;
+
+    // ---- 第 3 步：在每个负区域内找峰 ----
+    // 二阶导数最小值位置附近找原始数据的局部最大值
+    const int searchHalf = smoothWindow / 2;
+
+    for (const auto &region : regions) {
+        int center = region.minIdx;
+
+        // 在 center ± searchHalf 范围内找原始数据最高点
+        int searchStart = std::max(0, center - searchHalf);
+        int searchEnd   = std::min(n - 1, center + searchHalf);
+        int peakIdx = searchStart;
+        double peakY = points[searchStart].y();
+        for (int j = searchStart; j <= searchEnd; ++j) {
+            if (points[j].y() > peakY) {
+                peakY = points[j].y();
+                peakIdx = j;
+            }
+        }
+
+        // 峰高不够则跳过
+        if (peakY < minHeight) continue;
+
+        // 确保是局部极大值（在 ±searchHalf 内）
+        bool isLocalMax = true;
+        for (int j = std::max(0, peakIdx - searchHalf);
+             j <= std::min(n - 1, peakIdx + searchHalf); ++j) {
+            if (j == peakIdx) continue;
+            if (points[j].y() >= peakY) {
+                isLocalMax = false;
+                break;
+            }
+        }
+        // 如果不是局部极大值，说明这是肩峰——仍保留（这正是一阶导数法的优势）
+        // 但需要确保峰位置确实在负区域内
+        if (peakIdx < region.start || peakIdx > region.end) {
+            // 峰不在负区域内，跳过
+            if (!isLocalMax) continue;
+        }
+
+        DetectedPeak p;
+        p.wavelength = points[peakIdx].x();
+        p.intensity  = peakY;
+        p.prominence = 0.0; // 稍后计算
+        p.index      = peakIdx;
+        p.from2ndDeriv = true;
+        peaks.append(p);
+    }
+
+    // ---- 第 4 步：去重（合并距离太近的峰）----
+    if (peaks.size() > 1) {
+        std::sort(peaks.begin(), peaks.end(),
+                  [](const DetectedPeak &a, const DetectedPeak &b) { return a.index < b.index; });
+
+        QVector<DetectedPeak> deduped;
+        deduped.append(peaks[0]);
+        for (int k = 1; k < peaks.size(); ++k) {
+            const auto &prev = deduped.last();
+            const auto &curr = peaks[k];
+            // 如果和上一个峰距离太近（< 邻域窗口），保留强度高的
+            if (curr.index - prev.index <= searchHalf) {
+                if (curr.intensity > prev.intensity) {
+                    deduped.last() = curr;
+                }
+            } else {
+                deduped.append(curr);
+            }
+        }
+        peaks = deduped;
+    }
+
+    return peaks;
+}
+
+// ========== 自动峰值检测（综合局部极大值 + 二阶导数法）==========
 
 QVector<DetectedPeak> SpectralAnalyzer::detectPeaks(const QVector<QPointF> &points,
                                                       double minProminence,
                                                       int neighborhoodSize)
 {
-    QVector<DetectedPeak> peaks;
     const int n = points.size();
-    if (n < 2 * neighborhoodSize + 1) return peaks;
+    if (n < 2 * neighborhoodSize + 1) return QVector<DetectedPeak>();
 
     // ---- 自动计算最小显著度阈值 ----
+    double maxInt = 0.0;
+    for (const auto &p : points) {
+        if (p.y() > maxInt) maxInt = p.y();
+    }
     if (minProminence <= 0.0) {
-        double maxInt = 0.0;
-        for (const auto &p : points) {
-            if (p.y() > maxInt) maxInt = p.y();
-        }
-        // 默认：最大强度的 2%
         minProminence = maxInt * 0.02;
         if (minProminence < 1e-12) minProminence = 1e-12;
     }
 
-    // ---- 第 1 步：找出所有局部极大值 ----
+    // ===== 方法 1：局部极大值法 =====
+    QVector<DetectedPeak> peaksLocal;
     for (int i = neighborhoodSize; i < n - neighborhoodSize; ++i) {
         double yi = points[i].y();
         bool isMax = true;
@@ -339,14 +529,42 @@ QVector<DetectedPeak> SpectralAnalyzer::detectPeaks(const QVector<QPointF> &poin
             p.intensity  = yi;
             p.prominence = 0.0;
             p.index      = i;
-            peaks.append(p);
+            p.from2ndDeriv = false;
+            peaksLocal.append(p);
+        }
+    }
+
+    // ===== 方法 2：二阶导数法（参照 Origin） =====
+    // SG 窗口固定 7（与 Origin 默认一致），不受 neighborhoodSize 影响
+    int sgWindow = 7;
+    double minHeight2nd = maxInt * 0.005; // 更低阈值，捕捉肩峰
+    QVector<DetectedPeak> peaks2nd = detectPeaks2ndDeriv(points, minHeight2nd, sgWindow, 2);
+
+    // ===== 合并两个结果集 =====
+    QVector<DetectedPeak> peaks;
+    // 先用局部极大值的结果
+    for (const auto &p : peaksLocal)
+        peaks.append(p);
+
+    // 添加二阶导数法找到的新峰（去重）
+    // 使用波长容差而非索引容差，避免不同采样密度下的问题
+    const double wlTolerance = 0.2; // nm，两个峰被视为同一峰的最大波长差
+    for (const auto &p2 : peaks2nd) {
+        bool isDuplicate = false;
+        for (const auto &p1 : peaksLocal) {
+            if (std::abs(p2.wavelength - p1.wavelength) <= wlTolerance) {
+                isDuplicate = true;
+                break;
+            }
+        }
+        if (!isDuplicate) {
+            peaks.append(p2);
         }
     }
 
     if (peaks.isEmpty()) return peaks;
 
-    // ---- 第 2 步：计算每个峰的 Topographic Prominence ----
-    // 先按索引排序
+    // ---- 计算每个峰的 Topographic Prominence ----
     std::sort(peaks.begin(), peaks.end(),
               [](const DetectedPeak &a, const DetectedPeak &b) { return a.index < b.index; });
 
@@ -374,15 +592,30 @@ QVector<DetectedPeak> SpectralAnalyzer::detectPeaks(const QVector<QPointF> &poin
         peak.prominence = computeProminence(points, peak.index, leftBoundary, rightBoundary);
     }
 
-    // ---- 第 3 步：按显著度过滤 ----
+    // ---- 按显著度过滤（二阶导数峰额外用局部基线高度判断，避免漏掉肩峰）----
+    double minProminence2nd   = minProminence * 0.25;
+    double minHeightAboveBL   = maxInt * 0.005; // 肩峰：基线以上高度 > 0.5% 最大强度
     QVector<DetectedPeak> filtered;
-    for (const auto &p : peaks) {
-        if (p.prominence >= minProminence) {
-            filtered.append(p);
+    for (auto &p : peaks) {
+        if (p.from2ndDeriv) {
+            // 二阶导数峰：先计算局部基线高度
+            int lb, rb;
+            findValleyBounds(points, p.index, lb, rb);
+            double blY = computeLocalBaseline(points, lb, rb, p.wavelength);
+            double hAboveBL = p.intensity - blY;
+            // 通过条件：prominence 达标 或 局部基线以上高度达标
+            if (p.prominence >= minProminence2nd || hAboveBL >= minHeightAboveBL) {
+                p.localBaselineY = blY;
+                filtered.append(p);
+            }
+        } else {
+            if (p.prominence >= minProminence) {
+                filtered.append(p);
+            }
         }
     }
 
-    // ---- 第 4 步：按波长升序排列 ----
+    // ---- 按波长升序排列 ----
     std::sort(filtered.begin(), filtered.end(),
               [](const DetectedPeak &a, const DetectedPeak &b) { return a.wavelength < b.wavelength; });
 
@@ -408,6 +641,28 @@ double SpectralAnalyzer::computeProminence(const QVector<QPointF> &points,
     return points[peakIdx].y() - referenceHeight;
 }
 
+// ========== 局部基线 & 谷底查找 ==========
+
+double SpectralAnalyzer::computeLocalBaseline(const QVector<QPointF> &points,
+                                                int leftIdx,
+                                                int rightIdx,
+                                                double targetX)
+{
+    if (leftIdx < 0 || rightIdx >= points.size() || leftIdx >= rightIdx)
+        return 0.0;
+
+    double x1 = points[leftIdx].x();
+    double y1 = points[leftIdx].y();
+    double x2 = points[rightIdx].x();
+    double y2 = points[rightIdx].y();
+
+    if (std::abs(x2 - x1) < 1e-12)
+        return y1;
+
+    // 线性插值
+    return y1 + (y2 - y1) * (targetX - x1) / (x2 - x1);
+}
+
 // ========== 对检测到的峰计算 FWHM ==========
 
 void SpectralAnalyzer::findValleyBounds(const QVector<QPointF> &points,
@@ -416,23 +671,50 @@ void SpectralAnalyzer::findValleyBounds(const QVector<QPointF> &points,
                                          int &rightBound)
 {
     const int n = points.size();
+    double peakY = points[peakIdx].y();
     leftBound  = 0;
     rightBound = n - 1;
 
-    // 向左找谷底
+    // 向左找谷底：要求谷底深度至少为峰高的 10%（跳过微小波动）
+    const double minDepth = peakY * 0.10;
+    double bestLeftY = peakY;
+    int bestLeftIdx = 0;
     for (int i = peakIdx - 1; i > 1; --i) {
         if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
-            leftBound = i;
-            break;
+            // 检查深度是否够
+            if (peakY - points[i].y() >= minDepth) {
+                leftBound = i;
+                break;
+            }
+            // 记录最深的谷
+            if (points[i].y() < bestLeftY) {
+                bestLeftY = points[i].y();
+                bestLeftIdx = i;
+            }
         }
     }
+    // 如果没找到够深的谷，用搜索范围内最低点
+    if (leftBound == 0 && bestLeftIdx > 0) {
+        leftBound = bestLeftIdx;
+    }
 
-    // 向右找谷底
+    // 向右找谷底：同样要求深度至少为峰高的 10%
+    double bestRightY = peakY;
+    int bestRightIdx = n - 1;
     for (int i = peakIdx + 1; i < n - 1; ++i) {
         if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
-            rightBound = i;
-            break;
+            if (peakY - points[i].y() >= minDepth) {
+                rightBound = i;
+                break;
+            }
+            if (points[i].y() < bestRightY) {
+                bestRightY = points[i].y();
+                bestRightIdx = i;
+            }
         }
+    }
+    if (rightBound == n - 1 && bestRightIdx < n - 1) {
+        rightBound = bestRightIdx;
     }
 }
 
@@ -444,30 +726,64 @@ SpectralLineResult SpectralAnalyzer::analyzePeak(const QVector<QPointF> &points,
     result.targetWl      = peak.wavelength;
     result.foundPeakWl   = peak.wavelength;
     result.peakIntensity = peak.intensity;
-    result.halfMax       = peak.intensity / 2.0;
 
     if (points.isEmpty() || peak.index < 0 || peak.index >= points.size()) {
         result.errorMsg = QStringLiteral("无效的峰值索引");
         return result;
     }
 
-    // 找到峰两侧的谷底边界
+    // ---- 1. 找到峰两侧的谷底边界 ----
     int leftBound, rightBound;
     findValleyBounds(points, peak.index, leftBound, rightBound);
 
-    // 在谷底范围内搜索半峰穿越点
-    double leftWl  = findHalfCrossing(points, leftBound, peak.index,     result.halfMax, -1);
-    double rightWl = findHalfCrossing(points, peak.index,   rightBound,  result.halfMax,  1);
+    // ---- 2. 计算局部基线 ----
+    double baselineAtPeak = computeLocalBaseline(points, leftBound, rightBound, peak.wavelength);
+    double heightAboveBL = peak.intensity - baselineAtPeak;
 
-    // 找不到半峰穿越点时，用谷底横坐标兜底
+    // 如果基线以上高度为负（异常情况），回退到 y=0 基线
+    if (heightAboveBL <= 0.0) {
+        heightAboveBL = peak.intensity;
+        baselineAtPeak = 0.0;
+        result.halfMax = peak.intensity / 2.0;
+    } else {
+        // 半峰高 = 基线 + 基线以上高度/2（参照 Origin 的 local baseline 方法）
+        result.halfMax = baselineAtPeak + heightAboveBL / 2.0;
+    }
+
+    result.heightAboveBaseline = heightAboveBL;
+
+    // ---- 3. 在谷底范围内搜索半峰穿越点 ----
+    double leftWl  = findHalfCrossing(points, leftBound, peak.index,    result.halfMax, -1);
+    double rightWl = findHalfCrossing(points, peak.index,  rightBound, result.halfMax,  1);
+
+    // 找不到半峰穿越点时用谷底横坐标兜底
     if (leftWl < 0)
         leftWl = points[leftBound].x();
     if (rightWl < 0)
         rightWl = points[rightBound].x();
 
     result.fwhm          = rightWl - leftWl;
-    result.computedValue = result.fwhm * result.halfMax;  // FWHM × (peak/2)
-    result.valid         = true;
+    result.computedValue = result.fwhm * (heightAboveBL / 2.0); // FWHM × 基线以上半高
+
+    // ---- 4. 计算峰面积（梯形积分，仅积分局部基线以上的部分） ----
+    double area = 0.0;
+    for (int i = leftBound; i < rightBound; ++i) {
+        // 对每个小区间，计算局部基线以上的高度
+        double xLeft = points[i].x();
+        double blLeft = computeLocalBaseline(points, leftBound, rightBound, xLeft);
+        double hLeft = points[i].y() - blLeft;
+        if (hLeft < 0.0) hLeft = 0.0;
+
+        double xRight = points[i + 1].x();
+        double blRight = computeLocalBaseline(points, leftBound, rightBound, xRight);
+        double hRight = points[i + 1].y() - blRight;
+        if (hRight < 0.0) hRight = 0.0;
+
+        // 梯形面积 = (hLeft + hRight) * dx / 2
+        area += (hLeft + hRight) * (xRight - xLeft) / 2.0;
+    }
+    result.peakArea = area;
+    result.valid    = true;
 
     return result;
 }
@@ -518,11 +834,35 @@ SpectralLineResult SpectralAnalyzer::analyze(const QVector<QPointF> &points,
 
     result.foundPeakWl   = points[peakIdx].x();
     result.peakIntensity = peakInt;
-    result.halfMax       = peakInt / 2.0;
+
+    // 2.5 找谷底并计算局部基线
+    int leftValley = startIdx, rightValley = endIdx;
+    for (int i = peakIdx - 1; i > startIdx + 1; --i) {
+        if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
+            leftValley = i;
+            break;
+        }
+    }
+    for (int i = peakIdx + 1; i < endIdx - 1; ++i) {
+        if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
+            rightValley = i;
+            break;
+        }
+    }
+
+    double baselineAtPeak = computeLocalBaseline(points, leftValley, rightValley, points[peakIdx].x());
+    double heightAboveBL = peakInt - baselineAtPeak;
+    if (heightAboveBL <= 0.0) {
+        heightAboveBL = peakInt;
+        result.halfMax = peakInt / 2.0;
+    } else {
+        result.halfMax = baselineAtPeak + heightAboveBL / 2.0;
+    }
+    result.heightAboveBaseline = heightAboveBL;
 
     // 3. 找半峰全宽 (FWHM)
-    double leftWl = findHalfCrossing(points, startIdx, peakIdx, result.halfMax, -1);
-    double rightWl = findHalfCrossing(points, peakIdx, endIdx, result.halfMax, 1);
+    double leftWl = findHalfCrossing(points, leftValley, peakIdx, result.halfMax, -1);
+    double rightWl = findHalfCrossing(points, peakIdx, rightValley, result.halfMax, 1);
 
     if (leftWl < 0 || rightWl < 0) {
         result.errorMsg = QString("波长 %1 nm 处的峰无法计算半峰宽（基线可能过高或峰太窄）")
@@ -531,7 +871,7 @@ SpectralLineResult SpectralAnalyzer::analyze(const QVector<QPointF> &points,
     }
 
     result.fwhm = rightWl - leftWl;
-    result.computedValue = result.fwhm * result.halfMax; // FWHM × (peak/2)
+    result.computedValue = result.fwhm * (heightAboveBL / 2.0);
     result.valid = true;
 
     return result;

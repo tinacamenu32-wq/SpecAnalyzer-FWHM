@@ -61,3 +61,15 @@ set_target_properties(SpecAnalyzer PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.geosurvey.spectrumviewer"
     MACOSX_BUNDLE_BUNDLE_NAME "SpecAnalyzer"
 )
+
+# 临时测试程序
+set(TEST_SOURCES ${SOURCES})
+list(REMOVE_ITEM TEST_SOURCES "src/main.cpp")
+add_executable(test_peaks test_peaks.cpp ${TEST_SOURCES})
+target_include_directories(test_peaks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_peaks PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Charts
+)

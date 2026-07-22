@@ -7,10 +7,13 @@
 
 /// 自动检测到的峰值
 struct DetectedPeak {
-    double wavelength;   // 峰值波长 (nm)
-    double intensity;    // 峰值强度
-    double prominence;   // 峰显著度
-    int    index;        // 在原始数据中的索引
+    double wavelength;     // 峰值波长 (nm)
+    double intensity;      // 峰值强度
+    double prominence;     // 峰显著度
+    int    index;          // 在原始数据中的索引
+    double peakArea = 0;        // 峰面积（局部基线以上的积分）
+    double localBaselineY = 0;  // 峰位置处的局部基线高度
+    bool   from2ndDeriv = false; // 是否由二阶导数法检测到
 };
 
 /// 谱线分析结果
@@ -22,6 +25,8 @@ struct SpectralLineResult {
     double   halfMax;        // 半峰强度 = peakIntensity / 2
     double   fwhm;           // 半峰全宽 (nm)
     double   computedValue;  // FWHM × (peak/2)
+    double   peakArea = 0;          // 峰面积（局部基线以上的积分）
+    double   heightAboveBaseline = 0; // 局部基线以上的峰高
     bool     valid = false;
     QString  errorMsg;
 };
@@ -59,7 +64,7 @@ public:
     static QVector<QPointF> savitzkyGolay(const QVector<QPointF> &points,
                                             const SGParams &params);
 
-    /// 自动检测光谱数据中的所有峰值
+    /// 自动检测光谱数据中的所有峰值（综合局部极大值 + 二阶导数法）
     /// @param points          光谱数据点
     /// @param minProminence   最小峰显著度阈值，<=0 则自动计算（最大强度的 2%）
     /// @param neighborhoodSize 局部极大值检测的邻域大小（单侧点数）
@@ -67,6 +72,40 @@ public:
     static QVector<DetectedPeak> detectPeaks(const QVector<QPointF> &points,
                                               double minProminence = 0.0,
                                               int neighborhoodSize = 5);
+
+    /// 二阶导数法检测峰值（参照 Origin Peak Analyzer）
+    /// 可检测到局部极大值法漏掉的肩峰和隐藏峰
+    /// @param points      光谱数据点
+    /// @param minHeight   最小峰高阈值，<=0 则自动计算（最大强度的 1%）
+    /// @param smoothWindow SG 平滑窗口大小（用于导数计算）
+    /// @param polyOrder   多项式阶数
+    /// @return 检测到的峰值列表
+    static QVector<DetectedPeak> detectPeaks2ndDeriv(const QVector<QPointF> &points,
+                                                       double minHeight = 0.0,
+                                                       int smoothWindow = 7,
+                                                       int polyOrder = 2);
+
+    /// 计算 SG 平滑导数（0=平滑值, 1=一阶导数, 2=二阶导数）
+    /// @param points      光谱数据点
+    /// @param windowSize  SG 窗口大小
+    /// @param polyOrder   多项式阶数
+    /// @param derivativeOrder 导数阶数 (0/1/2)
+    /// @return 导数值数组（与输入等长）
+    static QVector<double> computeSGDerivative(const QVector<QPointF> &points,
+                                                int windowSize,
+                                                int polyOrder,
+                                                int derivativeOrder);
+
+    /// 计算两谷底之间的局部基线高度（线性插值）
+    /// @param points    光谱数据点
+    /// @param leftIdx   左谷底索引
+    /// @param rightIdx  右谷底索引
+    /// @param targetX   目标波长
+    /// @return 目标波长处的基线高度
+    static double computeLocalBaseline(const QVector<QPointF> &points,
+                                        int leftIdx,
+                                        int rightIdx,
+                                        double targetX);
 
     /// 对指定的峰值计算 FWHM 等指标
     /// @param points  光谱数据点

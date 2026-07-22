@@ -169,7 +169,7 @@ void MetadataPanel::setupUi()
     m_spinMaxFWHM = new QDoubleSpinBox(contentWidget);
     m_spinMaxFWHM->setRange(0, 1e12);
     m_spinMaxFWHM->setDecimals(4);
-    m_spinMaxFWHM->setValue(10000);
+    m_spinMaxFWHM->setValue(20000);
     m_spinMaxFWHM->setToolTip("最大半高宽");
     filterLayout->addWidget(m_spinMaxFWHM);
 
@@ -275,9 +275,11 @@ void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
 
     // 预计算所有峰的半高宽
     m_allComputedValues.resize(m_allPeaks.size());
+    m_allFwhmValues.resize(m_allPeaks.size());
     for (int i = 0; i < m_allPeaks.size(); ++i) {
         auto result = SpectralAnalyzer::analyzePeak(points, m_allPeaks[i]);
         m_allComputedValues[i] = result.computedValue;
+        m_allFwhmValues[i] = result.fwhm;
     }
 
     applyFilter();
@@ -289,6 +291,7 @@ void MetadataPanel::applyFilter()
     if (!m_chkFilterIntensity->isChecked() && !m_chkFilterFWHM->isChecked()) {
         m_detectedPeaks = m_allPeaks;
         m_peakComputedValues = m_allComputedValues;
+        m_peakFwhmValues = m_allFwhmValues;
         updateComboBox();
         return;
     }
@@ -301,6 +304,7 @@ void MetadataPanel::applyFilter()
 
     m_detectedPeaks.clear();
     m_peakComputedValues.clear();
+    m_peakFwhmValues.clear();
     for (int i = 0; i < m_allPeaks.size(); ++i) {
         const auto &p = m_allPeaks[i];
         double v = m_allComputedValues[i];
@@ -308,6 +312,7 @@ void MetadataPanel::applyFilter()
         if (filterFWHM && (v < minFWHM || v > maxFWHM)) continue;
         m_detectedPeaks.append(p);
         m_peakComputedValues.append(v);
+        m_peakFwhmValues.append(m_allFwhmValues[i]);
     }
 
     updateComboBox();
@@ -319,10 +324,11 @@ void MetadataPanel::updateComboBox()
     m_cmbLine->clear();
     for (int i = 0; i < m_detectedPeaks.size(); ++i) {
         const auto &p = m_detectedPeaks[i];
-        QString text = QString("#%1  %2 nm  强度:%3  半高宽:%4")
+        QString text = QString("#%1  %2 nm  强度:%3  半高宽原始值:%4 nm  半高宽:%5")
                            .arg(i + 1, 2)
                            .arg(p.wavelength, 8, 'f', 2)
                            .arg(p.intensity, 0, 'f', 0)
+                           .arg(m_peakFwhmValues[i], 0, 'f', 4)
                            .arg(m_peakComputedValues[i], 0, 'f', 4);
         m_cmbLine->addItem(text, i);
     }
@@ -370,6 +376,7 @@ void MetadataPanel::clear()
 
     m_allPeaks.clear();
     m_allComputedValues.clear();
+    m_allFwhmValues.clear();
     m_cmbLine->clear();
     m_lblPeakCount->setText("未检测到峰值");
     m_spectrumPoints.clear();

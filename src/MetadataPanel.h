@@ -95,6 +95,8 @@ private:
     QVector<QPointF>       m_spectrumPoints;
     QVector<DetectedPeak>   m_allPeaks;           // 检测到的所有峰
     QVector<double>         m_allComputedValues;  // 所有峰的半高宽
+    QVector<double>         m_allFwhmValues;      // 所有峰的 FWHM 原始值 (nm)
     QVector<DetectedPeak>   m_detectedPeaks;      // 过滤后的峰
     QVector<double>         m_peakComputedValues; // 过滤后的半高宽
+    QVector<double>         m_peakFwhmValues;     // 过滤后的 FWHM 原始值 (nm)
 };

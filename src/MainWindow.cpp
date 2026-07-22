@@ -288,7 +288,7 @@ void MainWindow::onExportResults()
     QString csv;
     QTextStream stream(&csv);
     stream << "文件名";
-    for (double wl : groupWls) stream << ",波长(nm),强度,半高宽";
+    for (double wl : groupWls) stream << ",波长(nm),强度,半高宽原始值(nm),半高宽";
     stream << "\n";
 
     int totalFound = 0;
@@ -303,7 +303,7 @@ void MainWindow::onExportResults()
         const SpectrumData &data = m_dataCache[path];
         stream << "\"" << QFileInfo(path).fileName() << "\"";
         if (!data.isValid()) {
-            for (int j = 0; j < groupWls.size(); ++j) stream << ",,,";
+            for (int j = 0; j < groupWls.size(); ++j) stream << ",,,,";
             stream << "\n"; continue;
         }
         if (!m_processedCache.contains(path))
@@ -319,15 +319,16 @@ void MainWindow::onExportResults()
                 if (dist < bestDist) { bestDist = dist; bestPeak = &p; }
             }
             if (bestPeak) {
-                if (filterIntensity && bestPeak->intensity < minInt) { stream << ",,,"; continue; }
+                if (filterIntensity && bestPeak->intensity < minInt) { stream << ",,,,"; continue; }
                 auto result = SpectralAnalyzer::analyzePeak(pts, *bestPeak);
-                if (filterFWHM && (result.computedValue < minFH || result.computedValue > maxFH)) { stream << ",,,"; continue; }
+                if (filterFWHM && (result.computedValue < minFH || result.computedValue > maxFH)) { stream << ",,,,"; continue; }
                 stream << "," << QString::number(bestPeak->wavelength, 'f', 2)
                        << "," << QString::number(bestPeak->intensity, 'f', 2)
+                       << "," << QString::number(result.fwhm, 'f', 4)
                        << "," << QString::number(result.computedValue, 'f', 4);
                 fwhmValues[j].append(result.computedValue);
                 ++totalFound;
-            } else { stream << ",,,"; }
+            } else { stream << ",,,,"; }
         }
         stream << "\n";
     }
@@ -337,7 +338,7 @@ void MainWindow::onExportResults()
         QStringList rsdCols; rsdCols << "RSD(%)";
         for (int j = 0; j < groupWls.size(); ++j) {
             const auto &vals = fwhmValues[j];
-            rsdCols << "" << "";
+            rsdCols << "" << "" << "";
             if (vals.size() < 2) {
                 rsdCols << "";
             } else {
@@ -499,7 +500,7 @@ void MainWindow::onPeakBasedExport()
     // 表头：文件名 + 每个峰三列
     stream << "文件名";
     for (double wl : selectedWavelengths) {
-        stream << ",波长(nm),强度,半高宽";
+        stream << ",波长(nm),强度,半高宽原始值(nm),半高宽";
     }
     stream << "\n";
 
@@ -524,7 +525,7 @@ void MainWindow::onPeakBasedExport()
 
         if (!data.isValid()) {
             for (int j = 0; j < selectedWavelengths.size(); ++j)
-                stream << ",,,";
+                stream << ",,,,";
             stream << "\n";
             continue;
         }
@@ -553,16 +554,17 @@ void MainWindow::onPeakBasedExport()
             }
 
             if (bestPeak) {
-                if (filterIntensity && bestPeak->intensity < minInt) { stream << ",,,"; continue; }
+                if (filterIntensity && bestPeak->intensity < minInt) { stream << ",,,,"; continue; }
                 auto result = SpectralAnalyzer::analyzePeak(pts, *bestPeak);
-                if (filterFWHM && (result.computedValue < minFH || result.computedValue > maxFH)) { stream << ",,,"; continue; }
+                if (filterFWHM && (result.computedValue < minFH || result.computedValue > maxFH)) { stream << ",,,,"; continue; }
                 stream << "," << QString::number(bestPeak->wavelength, 'f', 2)
                        << "," << QString::number(bestPeak->intensity, 'f', 2)
+                       << "," << QString::number(result.fwhm, 'f', 4)
                        << "," << QString::number(result.computedValue, 'f', 4);
                 fwhmValues[j].append(result.computedValue);
                 ++totalFound;
             } else {
-                stream << ",,,";
+                stream << ",,,,";
             }
         }
         stream << "\n";
@@ -574,7 +576,7 @@ void MainWindow::onPeakBasedExport()
         rsdCols << "RSD(%)";
         for (int j = 0; j < selectedWavelengths.size(); ++j) {
             const auto &vals = fwhmValues[j];
-            rsdCols << "" << ""; // 波长、强度为空
+            rsdCols << "" << "" << ""; // 波长、强度为空
             if (vals.size() < 2) {
                 rsdCols << ""; // 半高宽为空
             } else {
