@@ -16,14 +16,15 @@ jobs:
       - name: Install Qt6
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.5.*'
+          version: '6.8.*'
+          arch: 'win64_msvc2022_64'
           modules: 'qtcharts'
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build
-        run: cmake --build build --config Release
+      - name: Build SpecAnalyzer only
+        run: cmake --build build --config Release --target SpecAnalyzer
 
       - name: Deploy Qt DLLs
         run: |
