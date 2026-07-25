@@ -1,0 +1,38 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.*'
+          modules: 'qtcharts'
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Deploy Qt DLLs
+        run: |
+          mkdir package
+          copy build\Release\SpecAnalyzer.exe package\
+          windeployqt package\SpecAnalyzer.exe --no-translations
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpecAnalyzer-Windows
+          path: package/
