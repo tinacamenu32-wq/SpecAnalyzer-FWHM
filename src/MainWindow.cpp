@@ -358,7 +358,12 @@ void MainWindow::onExportResults()
         QMessageBox::warning(this, "导出失败", QString("无法写入文件:\n%1").arg(savePath));
         return;
     }
-    QTextStream fileStream(&file); fileStream.setEncoding(QStringConverter::Utf8);
+    QTextStream fileStream(&file);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    fileStream.setEncoding(QStringConverter::Utf8);
+#else
+    fileStream.setCodec("UTF-8");
+#endif
     fileStream << QChar(0xFEFF) << csv;
     file.close();
 
@@ -601,7 +606,11 @@ void MainWindow::onPeakBasedExport()
         return;
     }
     QTextStream fileStream(&file);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     fileStream.setEncoding(QStringConverter::Utf8);
+#else
+    fileStream.setCodec("UTF-8");
+#endif
     fileStream << QChar(0xFEFF);
     fileStream << csv;
     file.close();

@@ -15,8 +15,8 @@
 #define EVENT_POS(event) (event)->position()
 #else
 #define EVENT_POS(event) ((event)->type() == QEvent::Wheel ? \
-    static_cast<QWheelEvent*>(event)->posF() : \
-    static_cast<QMouseEvent*>(event)->localPos())
+    ((QWheelEvent*)(event))->posF() : \
+    ((QMouseEvent*)(event))->localPos())
 #endif
 
 // ==================== ZoomableChartView ====================
