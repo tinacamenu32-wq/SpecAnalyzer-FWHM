@@ -10,6 +10,15 @@
 #include <QGraphicsScene>
 #include <QFont>
 
+// Qt5/Qt6 兼容层
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#define EVENT_POS(event) (event)->position()
+#else
+#define EVENT_POS(event) ((event)->type() == QEvent::Wheel ? \
+    static_cast<QWheelEvent*>(event)->posF() : \
+    static_cast<QMouseEvent*>(event)->localPos())
+#endif
+
 // ==================== ZoomableChartView ====================
 
 ZoomableChartView::ZoomableChartView(QChart *chart, QWidget *parent)
@@ -47,7 +56,7 @@ void ZoomableChartView::resetZoom()
 
 void ZoomableChartView::wheelEvent(QWheelEvent *event)
 {
-    QPointF chartPos = chart()->mapToValue(event->position());
+    QPointF chartPos = chart()->mapToValue(EVENT_POS(event));
 
     const double factor = (event->angleDelta().y() > 0) ? 1.03 : (1.0 / 1.03);
 
@@ -89,7 +98,7 @@ void ZoomableChartView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         m_isPanning   = true;
-        m_lastPanPos  = event->position();
+        m_lastPanPos  = EVENT_POS(event);
         setCursor(Qt::ClosedHandCursor);
         event->accept();
         return;
@@ -102,7 +111,7 @@ void ZoomableChartView::mouseMoveEvent(QMouseEvent *event)
     if (m_isPanning) {
         // 计算鼠标移动在图表坐标系中的位移
         QPointF delta = chart()->mapToValue(m_lastPanPos)
-                      - chart()->mapToValue(event->position());
+                      - chart()->mapToValue(EVENT_POS(event));
 
         // 平移所有坐标轴
         auto axes = chart()->axes();
@@ -116,7 +125,7 @@ void ZoomableChartView::mouseMoveEvent(QMouseEvent *event)
             valAxis->setRange(lo, hi);
         }
 
-        m_lastPanPos = event->position();
+        m_lastPanPos = EVENT_POS(event);
         emit viewChanged();
         event->accept();
         return;

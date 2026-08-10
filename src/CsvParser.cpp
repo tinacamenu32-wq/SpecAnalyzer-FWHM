@@ -2,7 +2,6 @@
 
 #include <QFile>
 #include <QFileInfo>
-#include <QStringView>
 #include <QDebug>
 #include <QRegularExpression>
 
@@ -79,8 +78,8 @@ QVector<QPointF> CsvParser::parseDataRows(const QStringList &nonBlankLines,
             continue;
 
         bool ok1 = false, ok2 = false;
-        double wl        = QStringView(line).left(commaIdx).toDouble(&ok1);
-        double intensity = QStringView(line).mid(commaIdx + 1).toDouble(&ok2);
+        double wl        = line.left(commaIdx).toDouble(&ok1);
+        double intensity = line.mid(commaIdx + 1).toDouble(&ok2);
 
         if (ok1 && ok2)
             points.append(QPointF(wl, intensity));

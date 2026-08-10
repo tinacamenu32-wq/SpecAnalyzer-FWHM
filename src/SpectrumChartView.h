@@ -10,6 +10,11 @@
 #include <QGraphicsTextItem>
 #include <QVector>
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// Qt5: Charts 类在 QtCharts 命名空间中
+using namespace QtCharts;
+#endif
+
 class SpectrumData;
 struct DetectedPeak;
 

@@ -14,12 +14,16 @@ if(NOT CMAKE_PREFIX_PATH)
     endif()
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS
-    Core
-    Gui
-    Widgets
-    Charts
-)
+# 优先 Qt6，找不到则回退 Qt5（Win7 兼容）
+find_package(Qt6 6.5 QUIET COMPONENTS Core Gui Widgets Charts)
+if(NOT Qt6_FOUND)
+    find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Widgets Charts)
+    set(QT_VERSION_MAJOR 5)
+    message(STATUS "Using Qt5 (for Windows 7 compatibility)")
+else()
+    set(QT_VERSION_MAJOR 6)
+    message(STATUS "Using Qt6")
+endif()
 
 set(SOURCES
     src/main.cpp
@@ -49,10 +53,10 @@ add_executable(SpecAnalyzer ${SOURCES} ${HEADERS})
 target_include_directories(SpecAnalyzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_link_libraries(SpecAnalyzer PRIVATE
-    Qt6::Core
-    Qt6::Gui
-    Qt6::Widgets
-    Qt6::Charts
+    Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Gui
+    Qt${QT_VERSION_MAJOR}::Widgets
+    Qt${QT_VERSION_MAJOR}::Charts
 )
 
 # macOS bundle
@@ -68,8 +72,8 @@ list(REMOVE_ITEM TEST_SOURCES "src/main.cpp")
 add_executable(test_peaks test_peaks.cpp ${TEST_SOURCES})
 target_include_directories(test_peaks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(test_peaks PRIVATE
-    Qt6::Core
-    Qt6::Gui
-    Qt6::Widgets
-    Qt6::Charts
+    Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Gui
+    Qt${QT_VERSION_MAJOR}::Widgets
+    Qt${QT_VERSION_MAJOR}::Charts
 )
