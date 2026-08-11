@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SpecAnalyzer VERSION 1.0.0 LANGUAGES CXX)
+project(SpecAnalyzer-FWHM VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,11 +48,11 @@ set(HEADERS
     src/SpectralAnalyzer.h
 )
 
-add_executable(SpecAnalyzer ${SOURCES} ${HEADERS})
+add_executable(SpecAnalyzer-FWHM ${SOURCES} ${HEADERS})
 
-target_include_directories(SpecAnalyzer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(SpecAnalyzer-FWHM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-target_link_libraries(SpecAnalyzer PRIVATE
+target_link_libraries(SpecAnalyzer-FWHM PRIVATE
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Widgets
@@ -60,10 +60,10 @@ target_link_libraries(SpecAnalyzer PRIVATE
 )
 
 # macOS bundle
-set_target_properties(SpecAnalyzer PROPERTIES
+set_target_properties(SpecAnalyzer-FWHM PROPERTIES
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.geosurvey.spectrumviewer"
-    MACOSX_BUNDLE_BUNDLE_NAME "SpecAnalyzer"
+    MACOSX_BUNDLE_BUNDLE_NAME "SpecAnalyzer-FWHM"
 )
 
 # 临时测试程序

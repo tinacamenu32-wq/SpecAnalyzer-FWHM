@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# 原始数据
+7.4日数据/
+
 # Build directory
 build/
 

@@ -763,26 +763,26 @@ SpectralLineResult SpectralAnalyzer::analyzePeak(const QVector<QPointF> &points,
         rightWl = points[rightBound].x();
 
     result.fwhm          = rightWl - leftWl;
-    result.computedValue = result.fwhm * (heightAboveBL / 2.0); // FWHM × 基线以上半高
 
-    // ---- 4. 计算峰面积（梯形积分，仅积分局部基线以上的部分） ----
-    double area = 0.0;
-    for (int i = leftBound; i < rightBound; ++i) {
-        // 对每个小区间，计算局部基线以上的高度
-        double xLeft = points[i].x();
-        double blLeft = computeLocalBaseline(points, leftBound, rightBound, xLeft);
-        double hLeft = points[i].y() - blLeft;
-        if (hLeft < 0.0) hLeft = 0.0;
-
-        double xRight = points[i + 1].x();
-        double blRight = computeLocalBaseline(points, leftBound, rightBound, xRight);
-        double hRight = points[i + 1].y() - blRight;
-        if (hRight < 0.0) hRight = 0.0;
-
-        // 梯形面积 = (hLeft + hRight) * dx / 2
-        area += (hLeft + hRight) * (xRight - xLeft) / 2.0;
+    // ---- 4. 计算 computedValue：FWHM 范围内的曲线积分面积 ----
+    // 找到 FWHM 穿越点对应的数据索引
+    int leftFwhmIdx = leftBound;
+    for (int i = leftBound; i < peak.index; ++i) {
+        if (points[i].x() >= leftWl) { leftFwhmIdx = i; break; }
     }
-    result.peakArea = area;
+    int rightFwhmIdx = rightBound;
+    for (int i = peak.index + 1; i <= rightBound; ++i) {
+        if (points[i].x() >= rightWl) { rightFwhmIdx = i; break; }
+    }
+
+    double fwhmArea = 0.0;
+    for (int i = leftFwhmIdx; i < rightFwhmIdx; ++i) {
+        double yLeft  = points[i].y();
+        double yRight = points[i + 1].y();
+        double dx     = points[i + 1].x() - points[i].x();
+        fwhmArea += (yLeft + yRight) * dx / 2.0;
+    }
+    result.computedValue = fwhmArea;
     result.valid    = true;
 
     return result;
