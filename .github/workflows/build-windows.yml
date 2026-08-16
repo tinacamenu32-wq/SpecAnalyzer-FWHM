@@ -42,14 +42,21 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force package | Out-Null
           Copy-Item build\Release\SpecAnalyzer-FWHM.exe package\
-          windeployqt package\SpecAnalyzer-FWHM.exe --no-translations
-          # 复制 MSVC 2019 (v142, 14.29) 运行时 + UCRT，确保 Win7 兼容且免装 VC++ 运行库
-          # 用 vswhere 定位 VS 安装路径（runner 上可能是 VS2022 或 VS18，不能写死）
           $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          Get-ChildItem "$vsPath\VC\Redist\MSVC\*\x64" -Directory |
-            Where-Object { $_.Name -like "Microsoft.VC142.*" } |
-            ForEach-Object { Copy-Item "$($_.FullName)\*" package\ -Force }
-          Get-ChildItem package\ -Filter "*.dll" | Where-Object { $_.Name -like "msvcp*" -or $_.Name -like "vcruntime*" -or $_.Name -like "ucrt*" } | Select-Object Name
+          Write-Host "VS path: $vsPath"
+          # 在 v142 环境中运行 windeployqt，--compiler-runtime 会自动复制 MSVC 2019 (14.29) 运行时 + UCRT
+          $cmdLine = 'call "' + $vsPath + '\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.29 >nul && windeployqt package\SpecAnalyzer-FWHM.exe --no-translations --compiler-runtime'
+          cmd /c $cmdLine
+          # 兜底 1：从 v142 工具目录复制 CRT 运行库
+          Get-ChildItem "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64" -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll","concrt140.dll") } |
+            ForEach-Object { Copy-Item $_.FullName package\ -Force }
+          # 兜底 2：从 Windows SDK 复制 UCRT
+          Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Redist\*\ucrt\DLLs\x64" -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like "ucrtbase.dll" -or $_.Name -like "api-ms-win-*" } |
+            ForEach-Object { Copy-Item $_.FullName package\ -Force }
+          # 验证运行时已打入
+          Get-ChildItem package\ -Filter "*.dll" | Where-Object { $_.Name -match "msvcp|vcruntime|ucrt" } | Select-Object -ExpandProperty Name
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
