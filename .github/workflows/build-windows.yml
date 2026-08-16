@@ -23,17 +23,17 @@ jobs:
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build SpecAnalyzer only
-        run: cmake --build build --config Release --target SpecAnalyzer
+      - name: Build SpecAnalyzer-FWHM only
+        run: cmake --build build --config Release --target SpecAnalyzer-FWHM
 
       - name: Deploy Qt DLLs
         run: |
           mkdir package
-          copy build\Release\SpecAnalyzer.exe package\
-          windeployqt package\SpecAnalyzer.exe --no-translations
+          copy build\Release\SpecAnalyzer-FWHM.exe package\
+          windeployqt package\SpecAnalyzer-FWHM.exe --no-translations --compiler-runtime
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SpecAnalyzer-Windows
+          name: SpecAnalyzer-FWHM-Windows
           path: package/
