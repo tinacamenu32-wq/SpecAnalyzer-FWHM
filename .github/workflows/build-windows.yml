@@ -47,15 +47,33 @@ jobs:
           # 在 v142 环境中运行 windeployqt，--compiler-runtime 会自动复制 MSVC 2019 (14.29) 运行时 + UCRT
           $cmdLine = 'call "' + $vsPath + '\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.29 >nul && windeployqt package\SpecAnalyzer-FWHM.exe --no-translations --compiler-runtime'
           cmd /c $cmdLine
-          # 兜底 1：从 v142 工具目录复制 CRT 运行库
-          Get-ChildItem "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64" -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -in @("msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll","concrt140.dll") } |
-            ForEach-Object { Copy-Item $_.FullName package\ -Force }
-          # 兜底 2：从 Windows SDK 复制 UCRT
-          Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Redist\*\ucrt\DLLs\x64" -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like "ucrtbase.dll" -or $_.Name -like "api-ms-win-*" } |
-            ForEach-Object { Copy-Item $_.FullName package\ -Force }
-          # 验证运行时已打入
+          # windeployqt --compiler-runtime 会把 vc_redist.x64.exe(14.29, Win7兼容) 放进 package。
+          # 这里把它解包出运行库 DLL 直接内置，实现免安装双击运行；解包失败则保留安装器兜底。
+          $extractDir = "$PWD\redist_tmp"
+          New-Item -ItemType Directory -Force "$extractDir" | Out-Null
+          pushd package
+          expand vc_redist.x64.exe -F:* "$extractDir" 2>&1 | Out-Null
+          popd
+          $msi = Get-ChildItem "$extractDir" -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msi) {
+              New-Item -ItemType Directory -Force "$extractDir\payload" | Out-Null
+              & msiexec /a "$($msi.FullName)" /qn TARGETDIR="$extractDir\payload"
+              $crtNames = @("msvcp140.dll","msvcp140_1.dll","msvcp140_2.dll","vcruntime140.dll","vcruntime140_1.dll","concrt140.dll")
+              # CRT 运行库
+              Get-ChildItem "$extractDir\payload" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue |
+                Where-Object { $crtNames -contains $_.Name } |
+                ForEach-Object { Copy-Item $_.FullName package\ -Force }
+              # UCRT (ucrtbase + api-ms-win-crt-*)
+              Get-ChildItem "$extractDir\payload" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -eq "ucrtbase.dll" -or $_.Name -like "api-ms-win-crt-*" } |
+                ForEach-Object { Copy-Item $_.FullName package\ -Force }
+              Remove-Item "$extractDir" -Recurse -Force -ErrorAction SilentlyContinue
+              # 运行库已内置，移除 18MB 安装器
+              if (Test-Path "package\vcruntime140.dll") { Remove-Item "package\vc_redist.x64.exe" -Force -ErrorAction SilentlyContinue }
+          } else {
+              Write-Host "!! vc_redist 解包失败，保留安装器兜底"
+          }
+          # 验证运行库已打入
           Get-ChildItem package\ -Filter "*.dll" | Where-Object { $_.Name -match "msvcp|vcruntime|ucrt" } | Select-Object -ExpandProperty Name
 
       - name: Upload artifact
