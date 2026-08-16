@@ -23,10 +23,13 @@ jobs:
       # Windows 7 兼容关键：安装 MSVC 2019 (v142) 工具集
       # MSVC 2022 (v143) 的新版运行时 (14.40+) 已放弃 Win7，v142 的 14.29 运行时仍支持 Win7
       - name: Install MSVC 2019 (v142) toolset for Win7
+        shell: powershell
         run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installPath = & $vswhere -latest -property installationPath
-          & "$installPath\Installer\setup.exe" modify --installPath "$installPath" --add Microsoft.VisualStudio.Component.VC.v142.x86.x64 --passive --norestart
+          $bootstrapper = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $installPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Write-Host "VS install: $installPath"
+          & $bootstrapper modify --installPath "$installPath" --add Microsoft.VisualStudio.Component.VC.v142.x86.x64 --passive --norestart
+          if ($LASTEXITCODE -ne 0) { Write-Error "v142 toolset install failed (exit $LASTEXITCODE)"; exit $LASTEXITCODE }
 
       - name: Configure CMake (v142 toolset)
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-T v142"
