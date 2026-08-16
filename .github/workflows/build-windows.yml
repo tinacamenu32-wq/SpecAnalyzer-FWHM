@@ -44,9 +44,12 @@ jobs:
           Copy-Item build\Release\SpecAnalyzer-FWHM.exe package\
           windeployqt package\SpecAnalyzer-FWHM.exe --no-translations
           # 复制 MSVC 2019 (v142, 14.29) 运行时 + UCRT，确保 Win7 兼容且免装 VC++ 运行库
-          Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64" -Directory |
+          # 用 vswhere 定位 VS 安装路径（runner 上可能是 VS2022 或 VS18，不能写死）
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Get-ChildItem "$vsPath\VC\Redist\MSVC\*\x64" -Directory |
             Where-Object { $_.Name -like "Microsoft.VC142.*" } |
             ForEach-Object { Copy-Item "$($_.FullName)\*" package\ -Force }
+          Get-ChildItem package\ -Filter "*.dll" | Where-Object { $_.Name -like "msvcp*" -or $_.Name -like "vcruntime*" -or $_.Name -like "ucrt*" } | Select-Object Name
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
