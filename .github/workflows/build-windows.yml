@@ -20,17 +20,30 @@ jobs:
           arch: 'win64_msvc2019_64'
           modules: 'qtcharts'
 
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      # Windows 7 兼容关键：安装 MSVC 2019 (v142) 工具集
+      # MSVC 2022 (v143) 的新版运行时 (14.40+) 已放弃 Win7，v142 的 14.29 运行时仍支持 Win7
+      - name: Install MSVC 2019 (v142) toolset for Win7
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -property installationPath
+          & "$installPath\Installer\setup.exe" modify --installPath "$installPath" --add Microsoft.VisualStudio.Component.VC.v142.x86.x64 --passive --norestart
+
+      - name: Configure CMake (v142 toolset)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-T v142"
 
       - name: Build SpecAnalyzer-FWHM only
         run: cmake --build build --config Release --target SpecAnalyzer-FWHM
 
-      - name: Deploy Qt DLLs
+      - name: Deploy Qt DLLs + MSVC 2019 runtime (Win7 compatible)
+        shell: powershell
         run: |
-          mkdir package
-          copy build\Release\SpecAnalyzer-FWHM.exe package\
-          windeployqt package\SpecAnalyzer-FWHM.exe --no-translations --compiler-runtime
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item build\Release\SpecAnalyzer-FWHM.exe package\
+          windeployqt package\SpecAnalyzer-FWHM.exe --no-translations
+          # 复制 MSVC 2019 (v142, 14.29) 运行时 + UCRT，确保 Win7 兼容且免装 VC++ 运行库
+          Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64" -Directory |
+            Where-Object { $_.Name -like "Microsoft.VC142.*" } |
+            ForEach-Object { Copy-Item "$($_.FullName)\*" package\ -Force }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
