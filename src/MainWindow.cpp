@@ -47,7 +47,7 @@ void MainWindow::setupUi()
     subtitle->setProperty("role", "secondary");
     headerLayout->addWidget(subtitle);
     headerLayout->addStretch();
-    auto *badge = new QLabel(QStringLiteral("净峰积分面积分析"), header);
+    auto *badge = new QLabel(QStringLiteral("峰值面积分析"), header);
     badge->setProperty("role", "badge");
     headerLayout->addWidget(badge);
     layout->addWidget(header);
@@ -515,7 +515,7 @@ void MainWindow::onPeakBasedExport()
 
     int totalFound = 0;
 
-    // 收集每个峰在所有文件中的净峰积分面积值，用于计算 RSD
+    // 收集每个峰在所有文件中的峰值面积值，用于计算 RSD
     QVector<QVector<double>> fwhmValues(selectedWavelengths.size());
 
     for (int i = 0; i < filePaths.size(); ++i) {

@@ -6,7 +6,6 @@
 #include <QFont>
 #include <QScrollArea>
 #include <QGroupBox>
-#include <QToolButton>
 #include <QTabWidget>
 #include <QStyledItemDelegate>
 #include <QAbstractItemView>
@@ -154,7 +153,7 @@ void MetadataPanel::setupUi()
     m_spinMinIntensity->setValue(1200);
     m_spinMinIntensity->setToolTip(QStringLiteral("过滤掉强度低于此值的噪声峰"));
     intensityForm->addRow(QStringLiteral("最低强度"), m_spinMinIntensity);
-    m_chkFilterFWHM = new QCheckBox(QStringLiteral("按净峰积分面积过滤"), contentWidget);
+    m_chkFilterFWHM = new QCheckBox(QStringLiteral("按峰值面积过滤"), contentWidget);
     m_chkFilterFWHM->setChecked(true);
     filterLayout->addWidget(m_chkFilterFWHM);
     auto *areaForm = makeForm(filterLayout);
@@ -162,13 +161,13 @@ void MetadataPanel::setupUi()
     m_spinMinFWHM->setRange(0, 1e12);
     m_spinMinFWHM->setDecimals(4);
     m_spinMinFWHM->setValue(0.0001);
-    m_spinMinFWHM->setToolTip(QStringLiteral("最小净峰积分面积"));
+    m_spinMinFWHM->setToolTip(QStringLiteral("最小峰值面积"));
     areaForm->addRow(QStringLiteral("最小面积"), m_spinMinFWHM);
     m_spinMaxFWHM = new QDoubleSpinBox(contentWidget);
     m_spinMaxFWHM->setRange(0, 1e12);
     m_spinMaxFWHM->setDecimals(4);
     m_spinMaxFWHM->setValue(1e12);
-    m_spinMaxFWHM->setToolTip(QStringLiteral("最大净峰积分面积"));
+    m_spinMaxFWHM->setToolTip(QStringLiteral("最大峰值面积"));
     areaForm->addRow(QStringLiteral("最大面积"), m_spinMaxFWHM);
     connect(m_chkFilterIntensity, &QCheckBox::toggled, m_spinMinIntensity, &QWidget::setEnabled);
     connect(m_chkFilterFWHM, &QCheckBox::toggled, m_spinMinFWHM, &QWidget::setEnabled);
@@ -208,13 +207,8 @@ void MetadataPanel::setupUi()
     m_lblFileName->setWordWrap(true);
     m_lblFileName->setTextInteractionFlags(Qt::TextSelectableByMouse);
     fileLayout->addWidget(m_lblFileName);
-    auto *detailsButton = new QToolButton(contentWidget);
-    detailsButton->setText(QStringLiteral("采集参数"));
-    detailsButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    detailsButton->setArrowType(Qt::RightArrow);
-    detailsButton->setCheckable(true);
-    fileLayout->addWidget(detailsButton);
     auto *details = new QWidget(contentWidget);
+    details->setObjectName("acquisitionDetails");
     auto *form = new QFormLayout(details);
     form->setContentsMargins(0, 4, 0, 0);
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
@@ -236,11 +230,6 @@ void MetadataPanel::setupUi()
     form->addRow(QStringLiteral("触发模式"), m_lblTriggerMode);
     form->addRow(QStringLiteral("触发延迟"), m_lblTriggerDelay);
     fileLayout->addWidget(details);
-    details->hide();
-    connect(detailsButton, &QToolButton::toggled, details, &QWidget::setVisible);
-    connect(detailsButton, &QToolButton::toggled, detailsButton, [detailsButton](bool open) {
-        detailsButton->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
-    });
     // Keep frequent analysis controls in view; advanced processing and acquisition
     // details each have their own page, instead of one long inspector.
     auto *tabs = new QTabWidget(contentWidget);
@@ -346,7 +335,7 @@ void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
 
     // 在任何面积/强度过滤之前联合分析，避免过滤改变重叠峰组分。
     m_allResults = SpectralAnalyzer::analyzePeaks(points, m_allPeaks);
-    // 预计算所有峰的净峰积分面积
+    // 预计算所有峰的峰值面积
     m_allComputedValues.resize(m_allPeaks.size());
     m_allFwhmValues.resize(m_allPeaks.size());
     for (int i = 0; i < m_allPeaks.size(); ++i) {
@@ -400,7 +389,7 @@ void MetadataPanel::updateComboBox()
     m_cmbLine->clear();
     for (int i = 0; i < m_detectedPeaks.size(); ++i) {
         const auto &p = m_detectedPeaks[i];
-        QString text = QString("#%1  %2 nm  强度:%3  半高宽原始值:%4 nm  净峰积分面积:%5")
+        QString text = QString("#%1  %2 nm  强度:%3  半高宽原始值:%4 nm  峰值面积:%5")
                            .arg(i + 1, 2)
                            .arg(p.wavelength, 8, 'f', 2)
                            .arg(p.intensity, 0, 'f', 0)
@@ -435,7 +424,7 @@ void MetadataPanel::updatePeakDetails(int index)
     m_cmbLine->setToolTip(m_cmbLine->itemData(index, Qt::ToolTipRole).toString());
     const auto &result = m_peakResults[index];
     const QString area = result.valid ? QString::number(result.computedValue, 'f', 4) : QStringLiteral("—");
-    m_lblPeakDetails->setText(QStringLiteral("净峰积分面积  %1").arg(area));
+    m_lblPeakDetails->setText(QStringLiteral("峰值面积  %1").arg(area));
 }
 
 void MetadataPanel::setMetadata(const SpectrumMetadata &meta,

@@ -21,7 +21,7 @@ inline void writeHeader(QTextStream &stream, int peakCount)
 {
     stream << QStringLiteral("文件名");
     for (int i = 0; i < peakCount; ++i)
-        stream << QStringLiteral(",波长(nm),强度,半高宽原始值(nm),净峰积分面积");
+        stream << QStringLiteral(",波长(nm),强度,半高宽原始值(nm),峰值面积");
     stream << '\n';
 }
 

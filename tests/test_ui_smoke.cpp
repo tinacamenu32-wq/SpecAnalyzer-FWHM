@@ -2,7 +2,6 @@
 #include "UiTheme.h"
 #include <QApplication>
 #include <QLineEdit>
-#include <QToolButton>
 #include <QTabWidget>
 #include <QDebug>
 #include <QDir>
@@ -62,7 +61,7 @@ int main(int argc, char **argv)
         }
     }
     auto *combo = metadata->findChild<QComboBox *>();
-    if (!combo || !metadata->findChild<QLabel *>("peakDetails")->text().contains(QStringLiteral("净峰积分面积"))) return 6;
+    if (!combo || !metadata->findChild<QLabel *>("peakDetails")->text().contains(QStringLiteral("峰值面积"))) return 6;
     const QString visibleDetails=metadata->findChild<QLabel *>("peakDetails")->text();
     if(visibleDetails.contains(QStringLiteral("近似")) || visibleDetails.contains(QStringLiteral("拟合")) || visibleDetails.contains(QStringLiteral("积分区间")) || visibleDetails.contains(QLatin1Char('\n'))) return 14;
     if(combo->itemData(0,Qt::ToolTipRole).toString().contains(QStringLiteral("切分"))) return 15;
@@ -86,9 +85,11 @@ int main(int argc, char **argv)
     app.processEvents();
     if (!output.isEmpty()) window.grab().save(output + "/interface-processing.png");
     tabs->setCurrentIndex(2);
-    auto *detailsButton = metadata->findChild<QToolButton *>();
-    detailsButton->setChecked(true);
     app.processEvents();
+    auto *details = metadata->findChild<QWidget *>("acquisitionDetails");
+    if (!details || !details->isVisible()) return 16;
+    for (auto *button : metadata->findChildren<QAbstractButton *>())
+        if (button->text() == QStringLiteral("采集参数")) return 17;
     if (!output.isEmpty()) window.grab().save(output + "/interface-file-details.png");
     tabs->setCurrentIndex(0);
     app.processEvents();

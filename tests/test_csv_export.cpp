@@ -6,7 +6,7 @@ int main()
 {
     // Escaped expected text is independent of the compiler's source encoding.
     const QString fileName = QStringLiteral("\u6587\u4ef6\u540d");
-    const QString columns = QStringLiteral(",\u6ce2\u957f(nm),\u5f3a\u5ea6,\u534a\u9ad8\u5bbd\u539f\u59cb\u503c(nm),\u51c0\u5cf0\u79ef\u5206\u9762\u79ef");
+    const QString columns = QStringLiteral(",\u6ce2\u957f(nm),\u5f3a\u5ea6,\u534a\u9ad8\u5bbd\u539f\u59cb\u503c(nm),\u5cf0\u503c\u9762\u79ef");
     for (int peaks : {0, 1, 3}) {
         QString csv;
         QTextStream stream(&csv);
