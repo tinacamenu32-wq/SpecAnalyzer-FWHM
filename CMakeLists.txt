@@ -7,6 +7,11 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+if(MSVC)
+    # Keep source and execution character sets consistent on Windows.
+    add_compile_options(/utf-8)
+endif()
+
 # Qt6 install prefix (override with -DCMAKE_PREFIX_PATH on your system)
 if(NOT CMAKE_PREFIX_PATH)
     if(APPLE)
@@ -46,6 +51,7 @@ set(HEADERS
     src/MetadataPanel.h
     src/FileScanner.h
     src/SpectralAnalyzer.h
+    src/CsvExport.h
 )
 
 add_executable(SpecAnalyzer-FWHM ${SOURCES} ${HEADERS})
@@ -77,3 +83,11 @@ target_link_libraries(test_peaks PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::Charts
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(test_csv_export tests/test_csv_export.cpp)
+    target_include_directories(test_csv_export PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(test_csv_export PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME csv_export_encoding COMMAND test_csv_export)
+endif()

@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "CsvParser.h"
 #include "SpectralAnalyzer.h"
+#include "CsvExport.h"
 
 #include <QDebug>
 #include <QFileDialog>
@@ -287,9 +288,7 @@ void MainWindow::onExportResults()
     // 逐文件匹配
     QString csv;
     QTextStream stream(&csv);
-    stream << "文件名";
-    for (double wl : groupWls) stream << ",波长(nm),强度,半高宽原始值(nm),半高宽";
-    stream << "\n";
+    CsvExport::writeHeader(stream, groupWls.size());
 
     int totalFound = 0;
     QVector<QVector<double>> fwhmValues(groupWls.size());
@@ -502,12 +501,8 @@ void MainWindow::onPeakBasedExport()
     QString csv;
     QTextStream stream(&csv);
 
-    // 表头：文件名 + 每个峰三列
-    stream << "文件名";
-    for (double wl : selectedWavelengths) {
-        stream << ",波长(nm),强度,半高宽原始值(nm),半高宽";
-    }
-    stream << "\n";
+    // 表头：文件名 + 每个峰四列
+    CsvExport::writeHeader(stream, selectedWavelengths.size());
 
     const double searchWindow = 0.5;
     int totalFound = 0;

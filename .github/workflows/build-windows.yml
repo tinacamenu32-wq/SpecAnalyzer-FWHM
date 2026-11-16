@@ -35,7 +35,10 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-T v142"
 
       - name: Build SpecAnalyzer-FWHM only
-        run: cmake --build build --config Release --target SpecAnalyzer-FWHM
+        run: cmake --build build --config Release --target SpecAnalyzer-FWHM test_csv_export
+
+      - name: Verify Chinese CSV headers and UTF-8 encoding
+        run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Deploy Qt DLLs + MSVC 2019 runtime (Win7 compatible)
         shell: powershell
