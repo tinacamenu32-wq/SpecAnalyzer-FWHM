@@ -31,6 +31,7 @@ struct SpectralLineResult {
     double   integrationRight = 0;
     double   fitRelativeError = 0; // 重叠峰拟合的相对加权 RMS 误差
     bool     fitted = false;
+    bool     approximate = false; // 拟合失败后的观测区间切分估算
     bool     truncated = false;
     QString  areaStatus; // 直接积分、联合拟合、截断或失败原因
     double   heightAboveBaseline = 0; // 局部基线以上的峰高
@@ -121,7 +122,7 @@ public:
                                            const DetectedPeak &peak);
 
     /// 在过滤前联合分析所有候选峰，返回顺序与 peaks 一致。
-    /// 独立峰扣局部基线后只积正值；重叠峰进行多高斯联合拟合。
+    /// 独立峰扣局部基线后只积正值；重叠峰优先多高斯联合拟合，失败后谷底/中点切分近似。
     static QVector<SpectralLineResult> analyzePeaks(const QVector<QPointF> &points,
                                                    const QVector<DetectedPeak> &peaks);
 

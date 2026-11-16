@@ -22,6 +22,11 @@ int main(int argc, char **argv)
     auto *search = files->findChild<QLineEdit *>("fileSearch");
     auto *list = files->findChild<QListWidget *>();
     if (!files || !chart || !metadata || !search || !list) return 1;
+    auto *rsdOption=metadata->findChild<QCheckBox *>("includeApproximateRsd");
+    if(!rsdOption || metadata->includeApproximateRsd()) return 13;
+    rsdOption->setChecked(true);
+    if(!metadata->includeApproximateRsd()) return 14;
+    rsdOption->setChecked(false);
     const QString output = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
     if (!output.isEmpty()) {
         QDir().mkpath(output);

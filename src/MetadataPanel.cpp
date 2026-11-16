@@ -191,6 +191,10 @@ void MetadataPanel::setupUi()
     m_lblPeakDetails->setWordWrap(true);
     m_lblPeakDetails->setTextInteractionFlags(Qt::TextSelectableByMouse);
     analysisLayout->addWidget(m_lblPeakDetails);
+    m_chkApproximateRsd = new QCheckBox(QStringLiteral("RSD 包含近似面积"), contentWidget);
+    m_chkApproximateRsd->setObjectName("includeApproximateRsd");
+    m_chkApproximateRsd->setToolTip(QStringLiteral("默认不把切分估算的面积混入 RSD；勾选后导出统计会注明近似结果数量。截断峰仍不参与。"));
+    analysisLayout->addWidget(m_chkApproximateRsd);
     auto *btnExportPeaks = new QPushButton(QStringLiteral("导出所选峰值表"), contentWidget);
     btnExportPeaks->setProperty("role", "primary");
     btnExportPeaks->setEnabled(false);

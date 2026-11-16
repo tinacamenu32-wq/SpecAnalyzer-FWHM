@@ -101,7 +101,7 @@ int main()
     {
         auto data=gaussianData({-.02,.02},{100,100},{1,1});
         const auto result=SpectralAnalyzer::analyzePeaks(data,seeds(data,{-.02,.02}));
-        require(!result[0].valid && !result[1].valid,"Indistinguishable components must be rejected");
+        require(result[0].valid && result[1].valid && result[0].approximate && result[1].approximate && !result[0].fitted,"Indistinguishable fitted components must use marked approximations");
     }
     {
         auto data=gaussianData({0},{100},{1},-.5,5);
@@ -118,7 +118,48 @@ int main()
         require(!SpectralAnalyzer::analyzePeaks(bad,{p[0]})[0].valid,"NaN input accepted");
         QVector<QPointF> few{{0,0},{1,4},{2,3},{3,4},{4,0}};
         const auto sparse=SpectralAnalyzer::analyzePeaks(few,seeds(few,{1,3}));
-        require(!sparse[0].valid && !sparse[1].valid,"Undersampled overlapping peaks accepted");
+        require(sparse[0].valid && sparse[1].valid && sparse[0].approximate && sparse[1].approximate,"Coarse but integrable peaks need marked partition fallback");
+    }
+    // Fit is deliberately underdetermined with <5 samples per component.
+    // Fallback must conserve observed positive area without claiming a fit.
+    {
+        QVector<QPointF> data;
+        const QVector<double> y{0,1,5,4,3,4,5,1,0};
+        for(int i=0;i<y.size();++i) data.append(QPointF(i,y[i]));
+        auto peaks=seeds(data,{2,6});
+        const auto r=SpectralAnalyzer::analyzePeaks(data,peaks);
+        for(const auto &area:r) {
+            require(area.valid && area.approximate && !area.fitted,"Valley fallback missing approximate flag");
+            require(area.areaStatus.contains(QStringLiteral("近似：谷底切分")),"Valley method not disclosed");
+            require(area.errorMsg.isEmpty(),"Usable approximation still has an error");
+            require(std::abs(area.computedValue-11.5)<1e-12,"Valley partition area wrong");
+        }
+        require(r[0].integrationRight==4 && r[1].integrationLeft==4,"Shared valley boundary wrong");
+        std::reverse(peaks.begin(),peaks.end());
+        const auto reverse=SpectralAnalyzer::analyzePeaks(data,peaks);
+        require(reverse[1].integrationLeft==r[0].integrationLeft,"Fallback depends on caller order");
+    }
+    // A sloped baseline must be shared, not re-fitted through each cut. The
+    // midpoint x=2.5 is between data samples, so skipping partial cells fails.
+    {
+        QVector<QPointF> data;
+        const QVector<double> y{0,8,7,6,5,1,0};
+        for(int i=0;i<y.size();++i) data.append(QPointF(i,10+2*i+y[i]));
+        const auto r=SpectralAnalyzer::analyzePeaks(data,seeds(data,{1,4}));
+        for(const auto &area:r) require(area.valid && area.approximate && area.areaStatus.contains(QStringLiteral("中点切分")),"Midpoint fallback not marked");
+        require(r[0].integrationRight==2.5 && r[1].integrationLeft==2.5,"Fractional cut location incorrect");
+        require(std::abs(r[0].computedValue-14.875)<1e-12 && std::abs(r[1].computedValue-12.125)<1e-12,"Fractional midpoint/baseline integral incorrect");
+        require(std::abs(r[0].computedValue+r[1].computedValue-27)<1e-12,"Midpoint partitions do not conserve group net area");
+    }
+    {
+        QVector<QPointF> data;
+        const QVector<double> y{0,1,6,4,3,4,6,5.8,5.5,5.2,5,1,0};
+        for(int i=0;i<y.size();++i) data.append(QPointF(i,y[i]));
+        const auto r=SpectralAnalyzer::analyzePeaks(data,seeds(data,{2,6,10}));
+        double total=0;
+        for(const auto &area:r) {require(area.valid&&area.approximate,"Mixed-cut group not approximated");total+=area.computedValue;}
+        require(std::abs(total-46.5)<1e-10,"Mixed partitions lose or repeat area");
+        require(r[1].areaStatus.contains(QStringLiteral("谷底切分/中点切分")),"Mixed boundary methods not disclosed");
     }
     return failures ? 1 : 0;
 }

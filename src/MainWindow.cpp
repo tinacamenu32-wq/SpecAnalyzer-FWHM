@@ -325,6 +325,8 @@ void MainWindow::onExportResults()
 
     int totalFound = 0;
     QVector<QVector<double>> fwhmValues(groupWls.size());
+    QVector<int> approximateCounts(groupWls.size(), 0);
+    const bool includeApproximate = m_metadataPanel->includeApproximateRsd();
 
     for (int i = 0; i < filePaths.size(); ++i) {
         if (progress.wasCanceled()) break;
@@ -353,14 +355,14 @@ void MainWindow::onExportResults()
                 CsvExport::writeMissing(stream,QStringLiteral("未通过面积过滤"));continue;
             }
             CsvExport::writePeak(stream,p,result);
-            if (result.valid && !result.truncated) fwhmValues[j].append(result.computedValue);
+            CsvExport::collectRsd(result, includeApproximate, fwhmValues[j], approximateCounts[j]);
             ++totalFound;
         }
         stream << "\n";
     }
 
     // Invalid fits and partial peaks do not enter RSD statistics.
-    CsvExport::writeRsd(stream, fwhmValues);
+    CsvExport::writeRsd(stream, fwhmValues, approximateCounts, includeApproximate);
 
     progress.setValue(2 * filePaths.size());
     QFile file(savePath);
@@ -517,6 +519,8 @@ void MainWindow::onPeakBasedExport()
 
     // 收集每个峰在所有文件中的净峰积分面积值，用于计算 RSD
     QVector<QVector<double>> fwhmValues(selectedWavelengths.size());
+    QVector<int> approximateCounts(selectedWavelengths.size(), 0);
+    const bool includeApproximate = m_metadataPanel->includeApproximateRsd();
 
     for (int i = 0; i < filePaths.size(); ++i) {
         if (progress.wasCanceled()) break;
@@ -560,13 +564,13 @@ void MainWindow::onPeakBasedExport()
                 CsvExport::writeMissing(stream,QStringLiteral("未通过面积过滤"));continue;
             }
             CsvExport::writePeak(stream,p,result);
-            if (result.valid && !result.truncated) fwhmValues[j].append(result.computedValue);
+            CsvExport::collectRsd(result, includeApproximate, fwhmValues[j], approximateCounts[j]);
             ++totalFound;
         }
         stream << "\n";
     }
 
-    CsvExport::writeRsd(stream, fwhmValues);
+    CsvExport::writeRsd(stream, fwhmValues, approximateCounts, includeApproximate);
 
     progress.setValue(filePaths.size());
 

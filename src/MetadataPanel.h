@@ -42,6 +42,8 @@ public:
     double filterMinFWHM() const { return m_spinMinFWHM ? m_spinMinFWHM->value() : 0; }
     double filterMaxFWHM() const { return m_spinMaxFWHM ? m_spinMaxFWHM->value() : 9999; }
 
+    bool includeApproximateRsd() const { return m_chkApproximateRsd && m_chkApproximateRsd->isChecked(); }
+
     void clear();
 
 signals:
@@ -91,6 +93,7 @@ private:
     // --- 谱线分析 ---
     QLabel    *m_lblPeakCount = nullptr;
     QLabel    *m_lblPeakDetails = nullptr;
+    QCheckBox *m_chkApproximateRsd = nullptr;
     QComboBox *m_cmbLine      = nullptr;
 
     // --- 数据 ---

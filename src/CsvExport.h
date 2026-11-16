@@ -45,10 +45,23 @@ inline void writePeak(QTextStream &stream, const DetectedPeak &peak, const Spect
     stream << ',' << quoted(result.areaStatus);
 }
 
-inline void writeRsd(QTextStream &stream, const QVector<QVector<double>> &areas)
+inline void collectRsd(const SpectralLineResult &result, bool includeApproximate,
+                       QVector<double> &values, int &approximateCount)
+{
+    if(!result.valid || result.truncated || !std::isfinite(result.computedValue) || result.computedValue<=0) return;
+    if(result.approximate) {
+        ++approximateCount;
+        if(!includeApproximate) return;
+    }
+    values.append(result.computedValue);
+}
+
+inline void writeRsd(QTextStream &stream, const QVector<QVector<double>> &areas,
+                     const QVector<int> &approximateCounts = {}, bool includeApproximate = false)
 {
     stream << QStringLiteral("RSD(%)");
-    for (const auto &values : areas) {
+    for (int group=0;group<areas.size();++group) {
+        const auto &values=areas[group];
         QStringList columns;
         for (int k=0; k<ColumnsPerPeak; ++k) columns.append(QString());
         QVector<double> valid;
@@ -58,6 +71,12 @@ inline void writeRsd(QTextStream &stream, const QVector<QVector<double>> &areas)
             const double mean=sum/valid.size();
             double squares=0; for(double v:valid) squares+=(v-mean)*(v-mean);
             columns[AreaColumn]=QString::number(std::sqrt(squares/(valid.size()-1))/mean*100, 'f', 2);
+        }
+        if(group<approximateCounts.size() && approximateCounts[group]>0) {
+            columns[ColumnsPerPeak-1]=(includeApproximate ? QStringLiteral("含 %1 个近似面积")
+                                                       : QStringLiteral("已排除 %1 个近似面积"))
+                                          .arg(approximateCounts[group]);
+            if(valid.size()<2) columns[ColumnsPerPeak-1]+=QStringLiteral("；有效面积不足2个，未计算RSD");
         }
         stream << ',' << columns.join(QLatin1Char(','));
     }

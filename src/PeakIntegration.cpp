@@ -1,6 +1,7 @@
 #include "SpectralAnalyzer.h"
 #include <cmath>
 #include <numeric>
+#include <QStringList>
 
 namespace {
 constexpr int maxComponents = 8;
@@ -22,6 +23,85 @@ double baseline(const QVector<QPointF> &points, int left, int right, double x)
     const auto &a = points[left];
     const auto &b = points[right];
     return a.y() + (b.y() - a.y()) * (x - a.x()) / (b.x() - a.x());
+}
+
+// Integrate the same group-wide baseline over an arbitrary subinterval. Clip the
+// data segment at a fractional cut before finding its zero crossing.
+double integratePartition(const QVector<QPointF> &points, const Group &group,
+                          double left, double right)
+{
+    double area = 0;
+    for (int i=group.left; i<group.right; ++i) {
+        const auto &a=points[i]; const auto &b=points[i+1];
+        const double lo=std::max(left,a.x()), hi=std::min(right,b.x());
+        if (hi<=lo) continue;
+        const double h0=a.y()-baseline(points,group.left,group.right,a.x());
+        const double h1=b.y()-baseline(points,group.left,group.right,b.x());
+        const double y0=h0+(h1-h0)*(lo-a.x())/(b.x()-a.x());
+        const double y1=h0+(h1-h0)*(hi-a.x())/(b.x()-a.x());
+        area+=positiveSegment(lo,y0,hi,y1);
+    }
+    return area;
+}
+
+void approximateGroup(const QVector<QPointF> &points, const QVector<DetectedPeak> &peaks,
+                      const Group &group, double noise, const QString &fitReason,
+                      double fitError, const QVector<int> &order,
+                      QVector<SpectralLineResult> &results)
+{
+    const int count=group.last-group.first+1;
+    QVector<double> boundaries {points[group.left].x()};
+    QVector<QString> methods;
+    auto height=[&](int i) {
+        return points[i].y()-baseline(points,group.left,group.right,points[i].x());
+    };
+    for(int k=group.first; k<group.last; ++k) {
+        const int left=peaks[k].index, right=peaks[k+1].index;
+        if (right<=left) {
+            // Coincident samples do not establish two distinct peak positions.
+            for(int j=group.first;j<=group.last;++j) {
+                auto &r=results[order[j]];
+                r.areaStatus=r.errorMsg=QStringLiteral("未可靠分离：重复峰位，无法切分估算");
+            }
+            return;
+        }
+        int valley=-1;
+        const double depth=std::max(noise,std::max(0.0,std::min(height(left),height(right)))*.005);
+        for(int i=left+1;i<right;++i) {
+            const double h=height(i);
+            if(h<=height(i-1) && h<=height(i+1) &&
+               std::min(height(left),height(right))-h>depth &&
+               (valley<0 || h<height(valley))) valley=i;
+        }
+        boundaries.append(valley>=0 ? points[valley].x()
+                                   : .5*(points[left].x()+points[right].x()));
+        methods.append(valley>=0 ? QStringLiteral("谷底切分") : QStringLiteral("中点切分"));
+    }
+    boundaries.append(points[group.right].x());
+    QString reason=fitReason;
+    if(reason.startsWith(QStringLiteral("未可靠分离："))) reason.remove(0,QStringLiteral("未可靠分离：").size());
+    for(int k=0;k<count;++k) {
+        auto &r=results[order[group.first+k]];
+        r.fitted=false;
+        r.approximate=true;
+        r.fitRelativeError=fitError;
+        r.integrationLeft=boundaries[k];r.integrationRight=boundaries[k+1];
+        const double area=integratePartition(points,group,boundaries[k],boundaries[k+1]);
+        r.valid=std::isfinite(area) && area>0;
+        if(!r.valid) {
+            r.areaStatus=r.errorMsg=QStringLiteral("近似切分后无有效正面积");
+            continue;
+        }
+        r.computedValue=r.peakArea=area;
+        r.errorMsg.clear();
+        QStringList cuts;
+        if(k>0) cuts.append(methods[k-1]);
+        if(k<methods.size()) cuts.append(methods[k]);
+        cuts.removeDuplicates();
+        r.areaStatus=QStringLiteral("近似：%1；共用峰群基线；拟合未通过：%2")
+                         .arg(cuts.join(QLatin1Char('/')),reason);
+        if(r.truncated) r.areaStatus+=QStringLiteral("；触及数据边界，可能截断");
+    }
 }
 
 double median(QVector<double> values)
@@ -354,10 +434,13 @@ QVector<SpectralLineResult> SpectralAnalyzer::analyzePeaks(const QVector<QPointF
             double fitError=0;
             QString reason;
             const bool success=fitGaussians(points,peaks,group,components,fitError,reason);
+            if (!success) {
+                approximateGroup(points,peaks,group,noise,reason,fitError,order,results);
+                continue;
+            }
             for(int k=group.first;k<=group.last;++k) {
                 auto &r=results[order[k]];
                 r.fitted=true; r.fitRelativeError=fitError;
-                if (!success) { r.errorMsg=r.areaStatus=reason; continue; }
                 const auto g=components[k-group.first];
                 // Integrate the nonnegative fitted component over observed support;
                 // do not silently extrapolate missing peak tails outside the data.

@@ -51,6 +51,26 @@ int main()
         const auto matches=CsvExport::matchPeaks({500.01,500.03},peaks);
         if(matches[0]<0 || matches[1]<0 || matches[0]==matches[1]) return 7;
     }
+    {
+        SpectralLineResult r;r.valid=true;r.computedValue=12;r.approximate=true;
+        QVector<double> values;int count=0;
+        CsvExport::collectRsd(r,false,values,count);
+        if(!values.isEmpty()||count!=1) return 8;
+        QString text;QTextStream stream(&text);
+        CsvExport::writeRsd(stream,{values},{count},false);stream.flush();
+        if(!text.contains(QStringLiteral("已排除 1 个近似面积"))) return 9;
+        values.clear();count=0;
+        CsvExport::collectRsd(r,true,values,count);
+        if(values.size()!=1||values[0]!=12||count!=1) return 10;
+        r.computedValue=16;
+        CsvExport::collectRsd(r,true,values,count);
+        text.clear();stream.seek(0);
+        CsvExport::writeRsd(stream,{values},{count},true);stream.flush();
+        if(!text.contains(QStringLiteral("含 2 个近似面积"))||!text.contains(QStringLiteral("20.20"))) return 11;
+        r.truncated=true;
+        CsvExport::collectRsd(r,true,values,count);
+        if(values.size()!=2||count!=2) return 12;
+    }
     qInfo() << "Chinese CSV headers and UTF-8 BOM verified";
     return 0;
 }
