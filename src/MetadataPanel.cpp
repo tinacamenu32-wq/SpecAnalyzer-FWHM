@@ -186,15 +186,11 @@ void MetadataPanel::setupUi()
     m_cmbLine->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     m_cmbLine->setAccessibleName(QStringLiteral("检测到的谱线"));
     analysisLayout->addWidget(m_cmbLine);
-    m_lblPeakDetails = new QLabel(QStringLiteral("选择谱线以查看强度、半高宽与面积"), contentWidget);
+    m_lblPeakDetails = new QLabel(QStringLiteral("选择谱线以查看面积"), contentWidget);
     m_lblPeakDetails->setObjectName("peakDetails");
     m_lblPeakDetails->setWordWrap(true);
     m_lblPeakDetails->setTextInteractionFlags(Qt::TextSelectableByMouse);
     analysisLayout->addWidget(m_lblPeakDetails);
-    m_chkApproximateRsd = new QCheckBox(QStringLiteral("RSD 包含近似面积"), contentWidget);
-    m_chkApproximateRsd->setObjectName("includeApproximateRsd");
-    m_chkApproximateRsd->setToolTip(QStringLiteral("默认不把切分估算的面积混入 RSD；勾选后导出统计会注明近似结果数量。截断峰仍不参与。"));
-    analysisLayout->addWidget(m_chkApproximateRsd);
     auto *btnExportPeaks = new QPushButton(QStringLiteral("导出所选峰值表"), contentWidget);
     btnExportPeaks->setProperty("role", "primary");
     btnExportPeaks->setEnabled(false);
@@ -409,8 +405,7 @@ void MetadataPanel::updateComboBox()
                            .arg(p.wavelength, 8, 'f', 2)
                            .arg(p.intensity, 0, 'f', 0)
                            .arg(m_peakFwhmValues[i], 0, 'f', 4)
-                           .arg(m_peakResults[i].valid ? QString::number(m_peakComputedValues[i], 'f', 4) : QStringLiteral("不可用"));
-        text += QStringLiteral("  %1").arg(m_peakResults[i].areaStatus);
+                           .arg(m_peakResults[i].valid ? QString::number(m_peakComputedValues[i], 'f', 4) : QStringLiteral("—"));
         m_cmbLine->addItem(QStringLiteral("#%1  ·  %2 nm").arg(i + 1).arg(p.wavelength, 0, 'f', 2), i);
         m_cmbLine->setItemData(i, text, Qt::ToolTipRole);
     }
@@ -427,9 +422,6 @@ void MetadataPanel::updateComboBox()
                                     .arg(m_detectedPeaks.size()));
     }
 
-    int invalidCount = 0;
-    for (const auto &r : m_peakResults) if (!r.valid) ++invalidCount;
-    if (invalidCount) m_lblPeakCount->setText(m_lblPeakCount->text() + QStringLiteral("；%1 个面积不可用").arg(invalidCount));
     emit filterChanged();
 }
 
@@ -442,12 +434,8 @@ void MetadataPanel::updatePeakDetails(int index)
     }
     m_cmbLine->setToolTip(m_cmbLine->itemData(index, Qt::ToolTipRole).toString());
     const auto &result = m_peakResults[index];
-    const QString area = result.valid ? QString::number(result.computedValue, 'f', 4) : QStringLiteral("不可用");
-    m_lblPeakDetails->setText(QStringLiteral("强度  %1\n半高宽  %2 nm\n净峰积分面积  %3\n积分区间  %4 – %5 nm\n%6")
-        .arg(m_detectedPeaks[index].intensity, 0, 'f', 2)
-        .arg(m_peakFwhmValues[index], 0, 'f', 4)
-        .arg(area).arg(result.integrationLeft, 0, 'f', 3)
-        .arg(result.integrationRight, 0, 'f', 3).arg(result.areaStatus));
+    const QString area = result.valid ? QString::number(result.computedValue, 'f', 4) : QStringLiteral("—");
+    m_lblPeakDetails->setText(QStringLiteral("净峰积分面积  %1").arg(area));
 }
 
 void MetadataPanel::setMetadata(const SpectrumMetadata &meta,

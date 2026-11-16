@@ -8,7 +8,7 @@
 #include <cmath>
 
 namespace CsvExport {
-constexpr int ColumnsPerPeak = 7;
+constexpr int ColumnsPerPeak = 4;
 constexpr int AreaColumn = 3; // zero-based within each peak's columns
 
 inline QString quoted(QString text)
@@ -21,14 +21,13 @@ inline void writeHeader(QTextStream &stream, int peakCount)
 {
     stream << QStringLiteral("文件名");
     for (int i = 0; i < peakCount; ++i)
-        stream << QStringLiteral(",波长(nm),强度,半高宽原始值(nm),净峰积分面积,积分左边界(nm),积分右边界(nm),面积计算状态");
+        stream << QStringLiteral(",波长(nm),强度,半高宽原始值(nm),净峰积分面积");
     stream << '\n';
 }
 
-inline void writeMissing(QTextStream &stream, const QString &status = QStringLiteral("未匹配到峰"))
+inline void writeMissing(QTextStream &stream)
 {
     for (int i=0; i<ColumnsPerPeak; ++i) stream << ',';
-    stream << quoted(status);
 }
 
 inline void writePeak(QTextStream &stream, const DetectedPeak &peak, const SpectralLineResult &result)
@@ -38,26 +37,16 @@ inline void writePeak(QTextStream &stream, const DetectedPeak &peak, const Spect
            << ',' << QString::number(result.fwhm, 'f', 4) << ',';
     if (result.valid && std::isfinite(result.computedValue))
         stream << QString::number(result.computedValue, 'f', 4);
-    stream << ',';
-    if (result.integrationRight > result.integrationLeft) stream << QString::number(result.integrationLeft, 'f', 4);
-    stream << ',';
-    if (result.integrationRight > result.integrationLeft) stream << QString::number(result.integrationRight, 'f', 4);
-    stream << ',' << quoted(result.areaStatus);
+
 }
 
-inline void collectRsd(const SpectralLineResult &result, bool includeApproximate,
-                       QVector<double> &values, int &approximateCount)
+inline void collectRsd(const SpectralLineResult &result, QVector<double> &values)
 {
-    if(!result.valid || result.truncated || !std::isfinite(result.computedValue) || result.computedValue<=0) return;
-    if(result.approximate) {
-        ++approximateCount;
-        if(!includeApproximate) return;
-    }
-    values.append(result.computedValue);
+    if(result.valid && !result.truncated && std::isfinite(result.computedValue) && result.computedValue>0)
+        values.append(result.computedValue);
 }
 
-inline void writeRsd(QTextStream &stream, const QVector<QVector<double>> &areas,
-                     const QVector<int> &approximateCounts = {}, bool includeApproximate = false)
+inline void writeRsd(QTextStream &stream, const QVector<QVector<double>> &areas)
 {
     stream << QStringLiteral("RSD(%)");
     for (int group=0;group<areas.size();++group) {
@@ -71,12 +60,6 @@ inline void writeRsd(QTextStream &stream, const QVector<QVector<double>> &areas,
             const double mean=sum/valid.size();
             double squares=0; for(double v:valid) squares+=(v-mean)*(v-mean);
             columns[AreaColumn]=QString::number(std::sqrt(squares/(valid.size()-1))/mean*100, 'f', 2);
-        }
-        if(group<approximateCounts.size() && approximateCounts[group]>0) {
-            columns[ColumnsPerPeak-1]=(includeApproximate ? QStringLiteral("含 %1 个近似面积")
-                                                       : QStringLiteral("已排除 %1 个近似面积"))
-                                          .arg(approximateCounts[group]);
-            if(valid.size()<2) columns[ColumnsPerPeak-1]+=QStringLiteral("；有效面积不足2个，未计算RSD");
         }
         stream << ',' << columns.join(QLatin1Char(','));
     }

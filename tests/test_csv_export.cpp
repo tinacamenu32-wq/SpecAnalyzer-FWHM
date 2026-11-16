@@ -6,7 +6,7 @@ int main()
 {
     // Escaped expected text is independent of the compiler's source encoding.
     const QString fileName = QStringLiteral("\u6587\u4ef6\u540d");
-    const QString columns = QStringLiteral(",\u6ce2\u957f(nm),\u5f3a\u5ea6,\u534a\u9ad8\u5bbd\u539f\u59cb\u503c(nm),\u51c0\u5cf0\u79ef\u5206\u9762\u79ef,\u79ef\u5206\u5de6\u8fb9\u754c(nm),\u79ef\u5206\u53f3\u8fb9\u754c(nm),\u9762\u79ef\u8ba1\u7b97\u72b6\u6001");
+    const QString columns = QStringLiteral(",\u6ce2\u957f(nm),\u5f3a\u5ea6,\u534a\u9ad8\u5bbd\u539f\u59cb\u503c(nm),\u51c0\u5cf0\u79ef\u5206\u9762\u79ef");
     for (int peaks : {0, 1, 3}) {
         QString csv;
         QTextStream stream(&csv);
@@ -35,7 +35,7 @@ int main()
         result.areaStatus=QStringLiteral("拟合失败");
         CsvExport::writePeak(stream,peak,result);
         stream.flush();
-        if (row.contains(QStringLiteral("nan")) || !row.contains(QStringLiteral(",1.2000,,499.0000,501.0000,"))) return 3;
+        if (row.contains(QStringLiteral("nan")) || !row.endsWith(QStringLiteral(",1.2000,"))) return 3;
         if (!row.startsWith(QStringLiteral("\"样品,\"\"A\"\".csv\""))) return 4;
     }
     {
@@ -53,23 +53,34 @@ int main()
     }
     {
         SpectralLineResult r;r.valid=true;r.computedValue=12;r.approximate=true;
-        QVector<double> values;int count=0;
-        CsvExport::collectRsd(r,false,values,count);
-        if(!values.isEmpty()||count!=1) return 8;
-        QString text;QTextStream stream(&text);
-        CsvExport::writeRsd(stream,{values},{count},false);stream.flush();
-        if(!text.contains(QStringLiteral("已排除 1 个近似面积"))) return 9;
-        values.clear();count=0;
-        CsvExport::collectRsd(r,true,values,count);
-        if(values.size()!=1||values[0]!=12||count!=1) return 10;
+        QVector<double> values;
+        CsvExport::collectRsd(r,values);
         r.computedValue=16;
-        CsvExport::collectRsd(r,true,values,count);
-        text.clear();stream.seek(0);
-        CsvExport::writeRsd(stream,{values},{count},true);stream.flush();
-        if(!text.contains(QStringLiteral("含 2 个近似面积"))||!text.contains(QStringLiteral("20.20"))) return 11;
+        CsvExport::collectRsd(r,values);
+        if(values.size()!=2) return 8;
+        QString text;QTextStream stream(&text);
+        CsvExport::writeRsd(stream,{values});stream.flush();
+        if(!text.contains(QStringLiteral("20.20"))||text.contains(QStringLiteral("近似"))) return 9;
         r.truncated=true;
-        CsvExport::collectRsd(r,true,values,count);
-        if(values.size()!=2||count!=2) return 12;
+        CsvExport::collectRsd(r,values);
+        if(values.size()!=2) return 10;
+        r.truncated=false;r.valid=false;
+        CsvExport::collectRsd(r,values);
+        if(values.size()!=2) return 11;
+    }
+    {
+        QString row;QTextStream stream(&row);
+        DetectedPeak peak;peak.wavelength=500;peak.intensity=100;
+        SpectralLineResult r;r.valid=true;r.computedValue=250;r.fwhm=1.2;
+        r.approximate=true;r.areaStatus=QStringLiteral("近似：谷底切分；拟合未通过");
+        r.integrationLeft=499;r.integrationRight=501;
+        stream << CsvExport::quoted(QStringLiteral("sample.csv"));
+        CsvExport::writePeak(stream,peak,r);stream.flush();
+        if(row!=QStringLiteral("\"sample.csv\",500.00,100.00,1.2000,250.0000")) return 12;
+        row.clear();stream.seek(0);
+        stream << CsvExport::quoted(QStringLiteral("sample.csv"));
+        CsvExport::writeMissing(stream);stream.flush();
+        if(row!=QStringLiteral("\"sample.csv\",,,,")) return 13;
     }
     qInfo() << "Chinese CSV headers and UTF-8 BOM verified";
     return 0;

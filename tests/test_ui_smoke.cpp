@@ -22,11 +22,7 @@ int main(int argc, char **argv)
     auto *search = files->findChild<QLineEdit *>("fileSearch");
     auto *list = files->findChild<QListWidget *>();
     if (!files || !chart || !metadata || !search || !list) return 1;
-    auto *rsdOption=metadata->findChild<QCheckBox *>("includeApproximateRsd");
-    if(!rsdOption || metadata->includeApproximateRsd()) return 13;
-    rsdOption->setChecked(true);
-    if(!metadata->includeApproximateRsd()) return 14;
-    rsdOption->setChecked(false);
+    if(metadata->findChild<QCheckBox *>("includeApproximateRsd")) return 13;
     const QString output = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
     if (!output.isEmpty()) {
         QDir().mkpath(output);
@@ -67,6 +63,9 @@ int main(int argc, char **argv)
     }
     auto *combo = metadata->findChild<QComboBox *>();
     if (!combo || !metadata->findChild<QLabel *>("peakDetails")->text().contains(QStringLiteral("净峰积分面积"))) return 6;
+    const QString visibleDetails=metadata->findChild<QLabel *>("peakDetails")->text();
+    if(visibleDetails.contains(QStringLiteral("近似")) || visibleDetails.contains(QStringLiteral("拟合")) || visibleDetails.contains(QStringLiteral("积分区间")) || visibleDetails.contains(QLatin1Char('\n'))) return 14;
+    if(combo->itemData(0,Qt::ToolTipRole).toString().contains(QStringLiteral("切分"))) return 15;
     const auto allCandidates=SpectralAnalyzer::detectPeaks(data.points);
     const auto expectedAreas=SpectralAnalyzer::analyzePeaks(data.points, allCandidates);
     if(!metadata->findChild<QLabel *>("peakDetails")->text().contains(QString::number(expectedAreas[0].computedValue,'f',4))) return 10;

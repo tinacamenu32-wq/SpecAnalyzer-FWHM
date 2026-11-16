@@ -325,8 +325,6 @@ void MainWindow::onExportResults()
 
     int totalFound = 0;
     QVector<QVector<double>> fwhmValues(groupWls.size());
-    QVector<int> approximateCounts(groupWls.size(), 0);
-    const bool includeApproximate = m_metadataPanel->includeApproximateRsd();
 
     for (int i = 0; i < filePaths.size(); ++i) {
         if (progress.wasCanceled()) break;
@@ -338,7 +336,7 @@ void MainWindow::onExportResults()
         const SpectrumData &data = m_dataCache[path];
         stream << CsvExport::quoted(QFileInfo(path).fileName());
         if (!data.isValid()) {
-            for (int j = 0; j < groupWls.size(); ++j) CsvExport::writeMissing(stream, QStringLiteral("文件解析失败"));
+            for (int j = 0; j < groupWls.size(); ++j) CsvExport::writeMissing(stream);
             stream << "\n"; continue;
         }
         if (!m_processedCache.contains(path))
@@ -350,19 +348,19 @@ void MainWindow::onExportResults()
             const int match=matches[j];
             if (match<0) {CsvExport::writeMissing(stream);continue;}
             const auto &p=filePeaks[match]; const auto &result=fileResults[match];
-            if (filterIntensity && p.intensity<minInt) {CsvExport::writeMissing(stream,QStringLiteral("未通过强度过滤"));continue;}
+            if (filterIntensity && p.intensity<minInt) {CsvExport::writeMissing(stream);continue;}
             if (filterFWHM && result.valid && (result.computedValue<minFH || result.computedValue>maxFH)) {
-                CsvExport::writeMissing(stream,QStringLiteral("未通过面积过滤"));continue;
+                CsvExport::writeMissing(stream);continue;
             }
             CsvExport::writePeak(stream,p,result);
-            CsvExport::collectRsd(result, includeApproximate, fwhmValues[j], approximateCounts[j]);
+            CsvExport::collectRsd(result, fwhmValues[j]);
             ++totalFound;
         }
         stream << "\n";
     }
 
     // Invalid fits and partial peaks do not enter RSD statistics.
-    CsvExport::writeRsd(stream, fwhmValues, approximateCounts, includeApproximate);
+    CsvExport::writeRsd(stream, fwhmValues);
 
     progress.setValue(2 * filePaths.size());
     QFile file(savePath);
@@ -512,15 +510,13 @@ void MainWindow::onPeakBasedExport()
     QString csv;
     QTextStream stream(&csv);
 
-    // 表头：文件名 + 每个峰七列（含区间和计算状态）
+    // 表头：文件名 + 每个峰四列，仅导出最终数值
     CsvExport::writeHeader(stream, selectedWavelengths.size());
 
     int totalFound = 0;
 
     // 收集每个峰在所有文件中的净峰积分面积值，用于计算 RSD
     QVector<QVector<double>> fwhmValues(selectedWavelengths.size());
-    QVector<int> approximateCounts(selectedWavelengths.size(), 0);
-    const bool includeApproximate = m_metadataPanel->includeApproximateRsd();
 
     for (int i = 0; i < filePaths.size(); ++i) {
         if (progress.wasCanceled()) break;
@@ -537,7 +533,7 @@ void MainWindow::onPeakBasedExport()
 
         if (!data.isValid()) {
             for (int j = 0; j < selectedWavelengths.size(); ++j)
-                CsvExport::writeMissing(stream, QStringLiteral("文件解析失败"));
+                CsvExport::writeMissing(stream);
             stream << "\n";
             continue;
         }
@@ -559,18 +555,18 @@ void MainWindow::onPeakBasedExport()
             const int match=matches[j];
             if (match<0) {CsvExport::writeMissing(stream);continue;}
             const auto &p=filePeaks[match]; const auto &result=fileResults[match];
-            if (filterIntensity && p.intensity<minInt) {CsvExport::writeMissing(stream,QStringLiteral("未通过强度过滤"));continue;}
+            if (filterIntensity && p.intensity<minInt) {CsvExport::writeMissing(stream);continue;}
             if (filterFWHM && result.valid && (result.computedValue<minFH || result.computedValue>maxFH)) {
-                CsvExport::writeMissing(stream,QStringLiteral("未通过面积过滤"));continue;
+                CsvExport::writeMissing(stream);continue;
             }
             CsvExport::writePeak(stream,p,result);
-            CsvExport::collectRsd(result, includeApproximate, fwhmValues[j], approximateCounts[j]);
+            CsvExport::collectRsd(result, fwhmValues[j]);
             ++totalFound;
         }
         stream << "\n";
     }
 
-    CsvExport::writeRsd(stream, fwhmValues, approximateCounts, includeApproximate);
+    CsvExport::writeRsd(stream, fwhmValues);
 
     progress.setValue(filePaths.size());
 
