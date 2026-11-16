@@ -10,45 +10,94 @@
 #include <QDialogButtonBox>
 #include <QCheckBox>
 #include <QSet>
+#include <QLineEdit>
+#include <QAbstractItemModel>
 
 FileListPanel::FileListPanel(QWidget *parent)
     : QWidget(parent)
 {
+    setObjectName("fileSidebar");
+    setAttribute(Qt::WA_StyledBackground, true);
     m_layout = new QVBoxLayout(this);
-    m_layout->setContentsMargins(8, 8, 8, 8);
+    m_layout->setContentsMargins(16, 20, 16, 16);
+    m_layout->setSpacing(12);
+    auto *titleRow = new QHBoxLayout();
+    auto *title = new QLabel(QStringLiteral("光谱文件"), this);
+    title->setProperty("role", "section");
+    auto *count = new QLabel(QStringLiteral("0"), this);
+    count->setProperty("role", "badge");
+    titleRow->addWidget(title);
+    titleRow->addStretch();
+    titleRow->addWidget(count);
+    m_layout->addLayout(titleRow);
 
-    // 标题
-    auto *titleLabel = new QLabel("文件列表", this);
-    titleLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
-    m_layout->addWidget(titleLabel);
-
-    // 文件列表
+    m_importBtn = new QPushButton(QStringLiteral("＋ 导入 CSV"), this);
+    m_importBtn->setProperty("role", "primary");
+    m_importBtn->setToolTip(QStringLiteral("选择一个或多个光谱 CSV 文件"));
+    m_layout->addWidget(m_importBtn);
+    m_importDirBtn = new QPushButton(QStringLiteral("导入文件夹…"), this);
+    m_layout->addWidget(m_importDirBtn);
+    auto *search = new QLineEdit(this);
+    search->setObjectName("fileSearch");
+    search->setPlaceholderText(QStringLiteral("搜索文件名"));
+    search->setClearButtonEnabled(true);
+    search->setAccessibleName(QStringLiteral("搜索光谱文件"));
+    m_layout->addWidget(search);
     m_fileList = new QListWidget(this);
     m_fileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_layout->addWidget(m_fileList);
-
-    // 按钮行 1
-    auto *btnLayout1 = new QHBoxLayout();
-    m_importBtn = new QPushButton("导入文件...", this);
-    m_importDirBtn = new QPushButton("导入文件夹...", this);
-    btnLayout1->addWidget(m_importBtn);
-    btnLayout1->addWidget(m_importDirBtn);
-    m_layout->addLayout(btnLayout1);
-
-    // 按钮行 2
-    auto *btnLayout2 = new QHBoxLayout();
-    m_exportBtn = new QPushButton("导出峰值表", this);
-    m_removeBtn = new QPushButton("移除", this);
-    btnLayout2->addWidget(m_removeBtn);
-    btnLayout2->addWidget(m_exportBtn);
-    m_layout->addLayout(btnLayout2);
+    m_fileList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_fileList->setTextElideMode(Qt::ElideMiddle);
+    m_fileList->setAccessibleName(QStringLiteral("光谱文件列表"));
+    m_layout->addWidget(m_fileList, 1);
+    auto *empty = new QLabel(QStringLiteral("还没有光谱文件\n导入 CSV 或整个文件夹"), this);
+    empty->setProperty("role", "secondary");
+    empty->setAlignment(Qt::AlignCenter);
+    empty->setWordWrap(true);
+    m_layout->addWidget(empty);
+    auto updateFiles = [this, count, empty, search]() {
+        count->setText(QString::number(m_fileList->count()));
+        int visible = 0;
+        for (int i = 0; i < m_fileList->count(); ++i) {
+            auto *item = m_fileList->item(i);
+            item->setHidden(!item->text().contains(search->text(), Qt::CaseInsensitive));
+            if (!item->isHidden()) ++visible;
+        }
+        count->setText(search->text().isEmpty() ? QString::number(m_fileList->count())
+                       : QStringLiteral("%1 / %2").arg(visible).arg(m_fileList->count()));
+        empty->setText(m_fileList->count() == 0
+            ? QStringLiteral("还没有光谱文件\n导入 CSV 或整个文件夹")
+            : QStringLiteral("没有匹配的文件\n试试其他关键词"));
+        empty->setVisible(visible == 0);
+        m_removeBtn->setEnabled(m_fileList->count() > 0);
+        m_exportBtn->setEnabled(m_fileList->count() > 0);
+    };
+    m_exportBtn = new QPushButton(QStringLiteral("导出峰值表"), this);
+    m_exportBtn->setProperty("role", "primary");
+    m_layout->addWidget(m_exportBtn);
+    m_removeBtn = new QPushButton(QStringLiteral("移除文件…"), this);
+    m_removeBtn->setToolTip(QStringLiteral("仅从列表移除，不会删除原始文件"));
+    m_layout->addWidget(m_removeBtn);
+    connect(search, &QLineEdit::textChanged, this, updateFiles);
+    connect(m_fileList->model(), &QAbstractItemModel::rowsInserted, this, updateFiles);
+    connect(m_fileList->model(), &QAbstractItemModel::rowsRemoved, this, updateFiles);
+    connect(m_fileList->model(), &QAbstractItemModel::modelReset, this, updateFiles);
+    updateFiles();
 
     // 信号连接
     connect(m_importBtn, &QPushButton::clicked, this, &FileListPanel::onImportClicked);
     connect(m_importDirBtn, &QPushButton::clicked, this, &FileListPanel::onImportFolderClicked);
     connect(m_exportBtn, &QPushButton::clicked, this, &FileListPanel::onExportClicked);
     connect(m_removeBtn, &QPushButton::clicked, this, &FileListPanel::onRemoveClicked);
-    connect(m_fileList, &QListWidget::itemClicked, this, &FileListPanel::onItemClicked);
+    connect(m_fileList, &QListWidget::currentItemChanged, this,
+            [this](QListWidgetItem *item, QListWidgetItem *) { onItemClicked(item); });
+}
+
+FileListPanel::~FileListPanel()
+{
+    // Model reset can fire while child widgets are being destroyed. Stop callbacks
+    // before the count label and action buttons are deleted.
+    disconnect(m_fileList->model(), nullptr, this, nullptr);
+    disconnect(m_fileList, nullptr, this, nullptr);
 }
 
 void FileListPanel::addFiles(const QStringList &filePaths)

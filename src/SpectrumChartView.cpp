@@ -9,6 +9,9 @@
 #include <QtCharts/QScatterSeries>
 #include <QGraphicsScene>
 #include <QFont>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QStackedLayout>
 
 // Qt5/Qt6 兼容层
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -156,11 +159,47 @@ void ZoomableChartView::mouseDoubleClickEvent(QMouseEvent *event)
 SpectrumChartView::SpectrumChartView(QWidget *parent)
     : QWidget(parent)
 {
+    setObjectName("chartPanel");
+    setAttribute(Qt::WA_StyledBackground, true);
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-
+    layout->setContentsMargins(18, 18, 18, 14);
+    layout->setSpacing(8);
+    auto *toolbar = new QHBoxLayout();
+    auto *title = new QLabel(QStringLiteral("光谱曲线"), this);
+    title->setProperty("role", "section");
+    toolbar->addWidget(title);
+    toolbar->addStretch();
+    auto *reset = new QPushButton(QStringLiteral("复位视图"), this);
+    reset->setObjectName("resetChartView");
+    reset->setToolTip(QStringLiteral("恢复完整波长与强度范围，也可双击图表"));
+    toolbar->addWidget(reset);
+    layout->addLayout(toolbar);
+    m_sourceLabel = new QLabel(QStringLiteral("选择左侧文件以查看光谱"), this);
+    m_sourceLabel->setProperty("role", "secondary");
+    m_sourceLabel->setWordWrap(true);
+    layout->addWidget(m_sourceLabel);
     setupChart();
-    layout->addWidget(m_chartView);
+    auto *canvas = new QWidget(this);
+    auto *stack = new QStackedLayout(canvas);
+    stack->setStackingMode(QStackedLayout::StackAll);
+    stack->setContentsMargins(0, 0, 0, 0);
+    stack->addWidget(m_chartView);
+    m_emptyState = new QLabel(QStringLiteral("让光谱数据清晰可见\n\n导入 CSV，然后选择一个文件开始分析"), canvas);
+    m_emptyState->setObjectName("chartEmptyState");
+    m_emptyState->setAlignment(Qt::AlignCenter);
+    m_emptyState->setProperty("role", "secondary");
+    m_emptyState->setAttribute(Qt::WA_TransparentForMouseEvents);
+    stack->addWidget(m_emptyState);
+    stack->setCurrentWidget(m_emptyState);
+    layout->addWidget(canvas, 1);
+    auto *hint = new QLabel(QStringLiteral("滚轮缩放波长 · Shift + 滚轮缩放强度 · 拖动平移 · 双击复位"), this);
+    hint->setProperty("role", "secondary");
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+    connect(reset, &QPushButton::clicked, this, [this]() {
+        m_chartView->resetZoom();
+        updatePeakLabels();
+    });
 }
 
 void SpectrumChartView::setupChart()
@@ -171,15 +210,19 @@ void SpectrumChartView::setupChart()
     // 峰值标记散点
     m_markers = new QScatterSeries(this);
     m_markers->setMarkerSize(6);
-    m_markers->setColor(Qt::red);
-    m_markers->setBorderColor(Qt::darkRed);
+    m_markers->setColor(QColor("#ee8157"));
+    m_markers->setBorderColor(QColor("#d7643c"));
 
     m_chart = new QChart();
     m_chart->addSeries(m_series);
     m_chart->addSeries(m_markers);
     m_chart->legend()->hide();
-    m_chart->setTitle("光谱图");
-    m_chart->setAnimationOptions(QChart::SeriesAnimations);
+    m_chart->setBackgroundBrush(Qt::white);
+    m_chart->setBackgroundRoundness(0);
+    m_chart->setDropShadowEnabled(false);
+    m_chart->setMargins(QMargins(0, 12, 0, 0));
+    m_chart->setAnimationOptions(QChart::NoAnimation);
+    m_series->setPen(QPen(QColor("#007aff"), 1.8));
 
     m_axisX = new QValueAxis(this);
     m_axisX->setTitleText("波长 (nm)");
@@ -199,10 +242,18 @@ void SpectrumChartView::setupChart()
     m_axisX->setRange(0, 1000);
     m_axisY->setRange(0, 1000);
 
+    for (auto *axis : {m_axisX, m_axisY}) {
+        axis->setGridLinePen(QPen(QColor("#edf0f4"), 1));
+        axis->setLinePen(QPen(QColor("#d9dfe7"), 1));
+        axis->setLabelsColor(QColor("#758093"));
+        axis->setTitleBrush(QColor("#556174"));
+    }
     m_chartView = new ZoomableChartView(m_chart, this);
+    m_chartView->setFrameShape(QFrame::NoFrame);
 
     // 缩放/平移/复位后更新标签位置
     connect(m_chartView, &ZoomableChartView::viewChanged, this, &SpectrumChartView::updatePeakLabels);
+    connect(m_chart, &QChart::plotAreaChanged, this, [this](const QRectF &) { updatePeakLabels(); });
 }
 
 void SpectrumChartView::setSpectrumData(const SpectrumData &data)
@@ -227,7 +278,9 @@ void SpectrumChartView::setSpectrumData(const SpectrumData &data)
     m_axisY->setRange(yMin, yMax);
 
     m_chartView->setOriginalRange(xMin, xMax, yMin, yMax);
-    m_chart->setTitle(QString("光谱图 — %1").arg(data.fileName));
+    m_sourceLabel->setText(data.fileName);
+    m_sourceLabel->setToolTip(data.fileName);
+    m_emptyState->hide();
 }
 
 void SpectrumChartView::clear()
@@ -237,7 +290,9 @@ void SpectrumChartView::clear()
     m_markers->clear();
     m_axisX->setRange(0, 1000);
     m_axisY->setRange(0, 1000);
-    m_chart->setTitle("光谱图");
+    m_sourceLabel->setText(QStringLiteral("选择左侧文件以查看光谱"));
+    m_sourceLabel->setToolTip(QString());
+    m_emptyState->show();
 }
 
 // ========== 峰值编号标记 ==========
@@ -293,21 +348,19 @@ void SpectrumChartView::updatePeakLabels()
     for (int i = 0; i < m_peakPositions.size(); ++i) {
         QPointF dataPt(m_peakPositions[i].x(), m_peakPositions[i].y() + yOffset);
 
-        // 数据坐标 → 场景坐标
-        QPointF scenePt = m_chart->mapToPosition(dataPt);
-        // 转换为图表视图坐标系
-        QPointF viewPt = m_chartView->mapFromScene(scenePt);
-
-        auto *label = new QGraphicsTextItem(QString::number(i + 1));
+        // Labels use chart-local coordinates and follow plot resizing.
+        const QPointF chartPt = m_chart->mapToPosition(dataPt, m_series);
+        auto *label = new QGraphicsTextItem(QString::number(i + 1), m_chart);
         QFont f = label->font();
         f.setPointSize(8);
         f.setBold(true);
         label->setFont(f);
-        label->setDefaultTextColor(Qt::red);
-        label->setPos(scenePt);
+        label->setDefaultTextColor(QColor("#c45b36"));
+        label->setPos(chartPt.x() - label->boundingRect().width() / 2,
+                      chartPt.y() - label->boundingRect().height());
+        label->setVisible(m_chart->plotArea().contains(m_chart->mapToPosition(m_peakPositions[i], m_series)));
         label->setZValue(100);
 
-        m_chart->scene()->addItem(label);
         m_peakLabels.append(label);
     }
 

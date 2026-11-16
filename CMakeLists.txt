@@ -51,6 +51,7 @@ set(HEADERS
     src/MetadataPanel.h
     src/FileScanner.h
     src/SpectralAnalyzer.h
+    src/UiTheme.h
     src/CsvExport.h
 )
 
@@ -90,4 +91,11 @@ if(BUILD_TESTING)
     target_include_directories(test_csv_export PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(test_csv_export PRIVATE Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME csv_export_encoding COMMAND test_csv_export)
+    add_executable(test_ui_smoke tests/test_ui_smoke.cpp ${TEST_SOURCES} ${HEADERS})
+    target_include_directories(test_ui_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(test_ui_smoke PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Charts)
+    add_test(NAME ui_smoke COMMAND test_ui_smoke)
+    set_tests_properties(ui_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

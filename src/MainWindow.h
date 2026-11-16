@@ -38,7 +38,6 @@ private:
     MetadataPanel     *m_metadataPanel  = nullptr;
 
     QSplitter *m_mainSplitter  = nullptr;
-    QSplitter *m_rightSplitter = nullptr;
 
     QMap<QString, SpectrumData> m_dataCache;
     QMap<QString, QVector<QPointF>> m_processedCache;

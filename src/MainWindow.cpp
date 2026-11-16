@@ -15,6 +15,8 @@
 #include <QCheckBox>
 #include <QVBoxLayout>
 #include <QScrollArea>
+#include <QFrame>
+#include <QHBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -24,34 +26,49 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::setupUi()
 {
-    setWindowTitle("SpecAnalyzer - 光谱分析器");
-    resize(1280, 800);
+    setWindowTitle(QStringLiteral("SpecAnalyzer · 光谱分析"));
+    resize(1440, 920);
+    setMinimumSize(1100, 700);
 
-    // 中央 splitter
-    m_mainSplitter = new QSplitter(Qt::Horizontal, this);
-    setCentralWidget(m_mainSplitter);
+    auto *workspace = new QWidget(this);
+    workspace->setObjectName("workspace");
+    auto *layout = new QVBoxLayout(workspace);
+    layout->setContentsMargins(16, 8, 16, 0);
+    layout->setSpacing(12);
+    auto *header = new QFrame(workspace);
+    header->setObjectName("appHeader");
+    auto *headerLayout = new QHBoxLayout(header);
+    headerLayout->setContentsMargins(6, 6, 6, 6);
+    auto *heading = new QLabel(QStringLiteral("光谱分析"), header);
+    heading->setProperty("role", "title");
+    headerLayout->addWidget(heading);
+    auto *subtitle = new QLabel(QStringLiteral("SpecAnalyzer / FWHM"), header);
+    subtitle->setProperty("role", "secondary");
+    headerLayout->addWidget(subtitle);
+    headerLayout->addStretch();
+    auto *badge = new QLabel(QStringLiteral("半高宽面积分析"), header);
+    badge->setProperty("role", "badge");
+    headerLayout->addWidget(badge);
+    layout->addWidget(header);
 
-    // ---- 左侧：文件列表 ----
-    m_fileListPanel = new FileListPanel(this);
-    m_fileListPanel->setMinimumWidth(200);
-
-    // ---- 右侧：图表 + 元数据 ----
-    m_rightSplitter = new QSplitter(Qt::Vertical, this);
-
-    m_chartView = new SpectrumChartView(this);
-    m_metadataPanel = new MetadataPanel(this);
-
-    m_rightSplitter->addWidget(m_chartView);
-    m_rightSplitter->addWidget(m_metadataPanel);
-    m_rightSplitter->setStretchFactor(0, 85); // 图表占 85%
-    m_rightSplitter->setStretchFactor(1, 15); // 元数据占 15%
-
-    // 组装到大 splitter
+    m_mainSplitter = new QSplitter(Qt::Horizontal, workspace);
+    m_mainSplitter->setChildrenCollapsible(false);
+    m_mainSplitter->setHandleWidth(10);
+    m_fileListPanel = new FileListPanel(m_mainSplitter);
+    m_fileListPanel->setMinimumWidth(230);
+    m_chartView = new SpectrumChartView(m_mainSplitter);
+    m_chartView->setMinimumWidth(420);
+    m_metadataPanel = new MetadataPanel(m_mainSplitter);
+    m_metadataPanel->setMinimumWidth(310);
     m_mainSplitter->addWidget(m_fileListPanel);
-    m_mainSplitter->addWidget(m_rightSplitter);
-    m_mainSplitter->setStretchFactor(0, 1); // 左侧
-    m_mainSplitter->setStretchFactor(1, 4); // 右侧占 80%
-    m_mainSplitter->setSizes({250, 1030});
+    m_mainSplitter->addWidget(m_chartView);
+    m_mainSplitter->addWidget(m_metadataPanel);
+    m_mainSplitter->setStretchFactor(0, 0);
+    m_mainSplitter->setStretchFactor(1, 1);
+    m_mainSplitter->setStretchFactor(2, 0);
+    m_mainSplitter->setSizes({250, 790, 350});
+    layout->addWidget(m_mainSplitter, 1);
+    setCentralWidget(workspace);
 
     // 信号连接
     connect(m_fileListPanel, &FileListPanel::fileSelected,
@@ -68,7 +85,7 @@ void MainWindow::setupUi()
             this, &MainWindow::onPeakBasedExport);
 
     // 状态栏
-    statusBar()->showMessage("就绪");
+    statusBar()->showMessage(QStringLiteral("就绪 · 导入 CSV 文件开始分析"));
 }
 
 void MainWindow::loadInitialFiles(const QStringList &filePaths)
@@ -507,7 +524,7 @@ void MainWindow::onPeakBasedExport()
     const double searchWindow = 0.5;
     int totalFound = 0;
 
-    // 收集每个峰在所有文件中的半高宽值，用于计算 RSD
+    // 收集每个峰在所有文件中的半高宽面积值，用于计算 RSD
     QVector<QVector<double>> fwhmValues(selectedWavelengths.size());
 
     for (int i = 0; i < filePaths.size(); ++i) {
@@ -570,7 +587,7 @@ void MainWindow::onPeakBasedExport()
         stream << "\n";
     }
 
-    // RSD 行：每个峰占 3 列，RSD 放在第 3 列（半高宽）
+    // RSD 行：每个峰占 4 列，RSD 放在第 4 列（半高宽面积）
     {
         QStringList rsdCols;
         rsdCols << "RSD(%)";
@@ -578,7 +595,7 @@ void MainWindow::onPeakBasedExport()
             const auto &vals = fwhmValues[j];
             rsdCols << "" << "" << ""; // 波长、强度为空
             if (vals.size() < 2) {
-                rsdCols << ""; // 半高宽为空
+                rsdCols << ""; // 半高宽面积为空
             } else {
                 double sum = 0;
                 for (double v : vals) sum += v;

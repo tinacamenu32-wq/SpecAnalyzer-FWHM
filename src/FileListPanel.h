@@ -10,6 +10,7 @@ class FileListPanel : public QWidget {
     Q_OBJECT
 public:
     explicit FileListPanel(QWidget *parent = nullptr);
+    ~FileListPanel() override;
 
     void addFiles(const QStringList &filePaths);
     void clearFiles();

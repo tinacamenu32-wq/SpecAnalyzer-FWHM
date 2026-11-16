@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QLabel>
 #include <QtCharts/QChartView>
 #include <QtCharts/QChart>
 #include <QtCharts/QLineSeries>
@@ -70,6 +71,8 @@ private:
     void setupChart();
     void clearPeakLabels();
 
+    QLabel *m_sourceLabel = nullptr;
+    QLabel *m_emptyState = nullptr;
     ZoomableChartView *m_chartView = nullptr;
     QChart            *m_chart     = nullptr;
     QLineSeries       *m_series    = nullptr;
