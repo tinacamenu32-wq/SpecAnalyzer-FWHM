@@ -4,6 +4,7 @@
 #include <QVector>
 #include <QString>
 #include <algorithm>
+#include <limits>
 
 /// 自动检测到的峰值
 struct DetectedPeak {
@@ -19,19 +20,25 @@ struct DetectedPeak {
 /// 谱线分析结果
 struct SpectralLineResult {
     QString  label;          // 如 "589.02 nm"
-    double   targetWl;       // 目标波长 (nm)
-    double   foundPeakWl;    // 实际找到的峰值波长 (nm)
-    double   peakIntensity;  // 峰值强度
-    double   halfMax;        // 半峰强度 = peakIntensity / 2
-    double   fwhm;           // 半峰全宽 (nm)
-    double   computedValue;  // FWHM × (peak/2)
-    double   peakArea = 0;          // 峰面积（局部基线以上的积分）
+    double   targetWl = 0;       // 目标波长 (nm)
+    double   foundPeakWl = 0;    // 实际找到的峰值波长 (nm)
+    double   peakIntensity = 0;  // 峰值强度
+    double   halfMax = 0;        // 局部基线 + 净峰高 / 2
+    double   fwhm = 0;           // 半峰全宽 (nm)
+    double   computedValue = std::numeric_limits<double>::quiet_NaN(); // 完整峰净积分面积
+    double   peakArea = std::numeric_limits<double>::quiet_NaN();
+    double   integrationLeft = 0;
+    double   integrationRight = 0;
+    double   fitRelativeError = 0; // 重叠峰拟合的相对加权 RMS 误差
+    bool     fitted = false;
+    bool     truncated = false;
+    QString  areaStatus; // 直接积分、联合拟合、截断或失败原因
     double   heightAboveBaseline = 0; // 局部基线以上的峰高
     bool     valid = false;
     QString  errorMsg;
 };
 
-/// 光谱分析器：自动找峰 + 计算 FWHM × (peak/2)
+/// 光谱分析器：自动找峰、半高宽和完整峰净积分面积
 class SpectralAnalyzer {
 public:
     /// 预定义的谱线列表（保留兼容）
@@ -113,6 +120,11 @@ public:
     static SpectralLineResult analyzePeak(const QVector<QPointF> &points,
                                            const DetectedPeak &peak);
 
+    /// 在过滤前联合分析所有候选峰，返回顺序与 peaks 一致。
+    /// 独立峰扣局部基线后只积正值；重叠峰进行多高斯联合拟合。
+    static QVector<SpectralLineResult> analyzePeaks(const QVector<QPointF> &points,
+                                                   const QVector<DetectedPeak> &peaks);
+
     /// 基线扣除（ALS 非对称最小二乘法）
     /// @param points 光谱数据点
     /// @param params 基线参数
@@ -134,6 +146,8 @@ public:
                                       double windowNm = 0.5);
 
 private:
+    static SpectralLineResult analyzePeakWidth(const QVector<QPointF> &points,
+                                               const DetectedPeak &peak);
     /// 计算峰的显著度（topographic prominence）
     static double computeProminence(const QVector<QPointF> &points,
                                      int peakIdx,

@@ -35,7 +35,7 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release "-T v142"
 
       - name: Build SpecAnalyzer-FWHM only
-        run: cmake --build build --config Release --target SpecAnalyzer-FWHM test_csv_export test_ui_smoke
+        run: cmake --build build --config Release --target SpecAnalyzer-FWHM test_csv_export test_ui_smoke test_peak_integration
 
       - name: Verify Chinese CSV headers and UTF-8 encoding
         run: ctest --test-dir build -C Release --output-on-failure

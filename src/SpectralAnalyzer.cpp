@@ -718,7 +718,7 @@ void SpectralAnalyzer::findValleyBounds(const QVector<QPointF> &points,
     }
 }
 
-SpectralLineResult SpectralAnalyzer::analyzePeak(const QVector<QPointF> &points,
+SpectralLineResult SpectralAnalyzer::analyzePeakWidth(const QVector<QPointF> &points,
                                                    const DetectedPeak &peak)
 {
     SpectralLineResult result;
@@ -764,25 +764,6 @@ SpectralLineResult SpectralAnalyzer::analyzePeak(const QVector<QPointF> &points,
 
     result.fwhm          = rightWl - leftWl;
 
-    // ---- 4. 计算 computedValue：FWHM 范围内的曲线积分面积 ----
-    // 找到 FWHM 穿越点对应的数据索引
-    int leftFwhmIdx = leftBound;
-    for (int i = leftBound; i < peak.index; ++i) {
-        if (points[i].x() >= leftWl) { leftFwhmIdx = i; break; }
-    }
-    int rightFwhmIdx = rightBound;
-    for (int i = peak.index + 1; i <= rightBound; ++i) {
-        if (points[i].x() >= rightWl) { rightFwhmIdx = i; break; }
-    }
-
-    double fwhmArea = 0.0;
-    for (int i = leftFwhmIdx; i < rightFwhmIdx; ++i) {
-        double yLeft  = points[i].y();
-        double yRight = points[i + 1].y();
-        double dx     = points[i + 1].x() - points[i].x();
-        fwhmArea += (yLeft + yRight) * dx / 2.0;
-    }
-    result.computedValue = fwhmArea;
     result.valid    = true;
 
     return result;
@@ -832,48 +813,14 @@ SpectralLineResult SpectralAnalyzer::analyze(const QVector<QPointF> &points,
         }
     }
 
-    result.foundPeakWl   = points[peakIdx].x();
-    result.peakIntensity = peakInt;
-
-    // 2.5 找谷底并计算局部基线
-    int leftValley = startIdx, rightValley = endIdx;
-    for (int i = peakIdx - 1; i > startIdx + 1; --i) {
-        if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
-            leftValley = i;
-            break;
-        }
-    }
-    for (int i = peakIdx + 1; i < endIdx - 1; ++i) {
-        if (points[i].y() <= points[i - 1].y() && points[i].y() <= points[i + 1].y()) {
-            rightValley = i;
-            break;
-        }
-    }
-
-    double baselineAtPeak = computeLocalBaseline(points, leftValley, rightValley, points[peakIdx].x());
-    double heightAboveBL = peakInt - baselineAtPeak;
-    if (heightAboveBL <= 0.0) {
-        heightAboveBL = peakInt;
-        result.halfMax = peakInt / 2.0;
-    } else {
-        result.halfMax = baselineAtPeak + heightAboveBL / 2.0;
-    }
-    result.heightAboveBaseline = heightAboveBL;
-
-    // 3. 找半峰全宽 (FWHM)
-    double leftWl = findHalfCrossing(points, leftValley, peakIdx, result.halfMax, -1);
-    double rightWl = findHalfCrossing(points, peakIdx, rightValley, result.halfMax, 1);
-
-    if (leftWl < 0 || rightWl < 0) {
-        result.errorMsg = QString("波长 %1 nm 处的峰无法计算半峰宽（基线可能过高或峰太窄）")
-                              .arg(targetWl);
-        return result;
-    }
-
-    result.fwhm = rightWl - leftWl;
-    result.computedValue = result.fwhm * (heightAboveBL / 2.0);
-    result.valid = true;
-
+    DetectedPeak peak;
+    peak.index = peakIdx;
+    peak.wavelength = points[peakIdx].x();
+    peak.intensity = peakInt;
+    peak.prominence = 0;
+    result = analyzePeak(points, peak);
+    result.label = label;
+    result.targetWl = targetWl;
     return result;
 }
 

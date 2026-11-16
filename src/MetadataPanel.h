@@ -95,10 +95,12 @@ private:
 
     // --- 数据 ---
     QVector<QPointF>       m_spectrumPoints;
+    QVector<SpectralLineResult> m_allResults;
+    QVector<SpectralLineResult> m_peakResults;
     QVector<DetectedPeak>   m_allPeaks;           // 检测到的所有峰
-    QVector<double>         m_allComputedValues;  // 所有峰的半高宽面积
+    QVector<double>         m_allComputedValues;  // 所有峰的净峰积分面积
     QVector<double>         m_allFwhmValues;      // 所有峰的 FWHM 原始值 (nm)
     QVector<DetectedPeak>   m_detectedPeaks;      // 过滤后的峰
-    QVector<double>         m_peakComputedValues; // 过滤后的半高宽面积
+    QVector<double>         m_peakComputedValues; // 过滤后的净峰积分面积
     QVector<double>         m_peakFwhmValues;     // 过滤后的 FWHM 原始值 (nm)
 };

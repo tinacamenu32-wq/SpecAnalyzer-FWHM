@@ -6,6 +6,8 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFileInfo>
+#include <QMap>
+#include <QElapsedTimer>
 
 int main(int argc, char *argv[])
 {
@@ -47,6 +49,12 @@ int main(int argc, char *argv[])
 
     // 3. 只跑局部极大值法（旧算法）
     auto peaksOld = SpectralAnalyzer::detectPeaks(baselineRemoved, 0.0, 5);
+    QElapsedTimer timer;
+    timer.start();
+    const auto areas = SpectralAnalyzer::analyzePeaks(baselineRemoved, peaksOld);
+    QMap<int, SpectralLineResult> areaByIndex;
+    for (int i=0;i<peaksOld.size();++i) areaByIndex.insert(peaksOld[i].index, areas[i]);
+    qInfo() << "Batch full-peak area analysis:" << timer.elapsed() << "ms";
     // 过滤掉 from2ndDeriv 的，只看局部极大值
     QVector<DetectedPeak> onlyLocal;
     for (const auto &p : peaksOld) {
@@ -90,16 +98,18 @@ int main(int argc, char *argv[])
               [](const DetectedPeak &a, const DetectedPeak &b) { return a.intensity > b.intensity; });
     for (int i = 0; i < std::min(15, (int)sorted.size()); ++i) {
         const auto &p = sorted[i];
-        auto result = SpectralAnalyzer::analyzePeak(baselineRemoved, p);
+        const auto result = areaByIndex.value(p.index);
         QString tag = p.from2ndDeriv ? "[二阶导数]" : "[局部极大]";
         qDebug().noquote()
-            << QString("  #%1 %2 λ=%3 nm  I=%4  FWHM=%5 nm  prominence=%6")
+            << QString("  #%1 %2 λ=%3 nm  I=%4  FWHM=%5 nm  prominence=%6  NetArea=%7  %8")
                    .arg(i + 1, 2)
                    .arg(tag)
                    .arg(p.wavelength, 8, 'f', 2)
                    .arg(p.intensity, 6, 'f', 0)
                    .arg(result.fwhm, 0, 'f', 4)
-                   .arg(p.prominence, 0, 'f', 0);
+                   .arg(p.prominence, 0, 'f', 0)
+                   .arg(result.valid ? QString::number(result.computedValue, 'f', 2) : QStringLiteral("不可用"))
+                   .arg(result.areaStatus);
     }
 
     return 0;

@@ -8,6 +8,56 @@
 #include <QGroupBox>
 #include <QToolButton>
 #include <QTabWidget>
+#include <QStyledItemDelegate>
+#include <QAbstractItemView>
+#include <QScreen>
+#include <QGuiApplication>
+
+namespace {
+class PeakDetailsDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QSize size = QStyledItemDelegate::sizeHint(option, index);
+        size.setHeight(qMax(size.height() + 10, 36));
+        return size;
+    }
+
+protected:
+    void initStyleOption(QStyleOptionViewItem *option, const QModelIndex &index) const override
+    {
+        QStyledItemDelegate::initStyleOption(option, index);
+        const QString details = index.data(Qt::ToolTipRole).toString();
+        if (!details.isEmpty()) option->text = details;
+    }
+};
+
+class PeakComboBox : public QComboBox {
+public:
+    explicit PeakComboBox(QWidget *parent) : QComboBox(parent)
+    {
+        setItemDelegate(new PeakDetailsDelegate(this));
+        QFont popupFont = font();
+        popupFont.setPointSizeF(qMax(13.0, popupFont.pointSizeF()));
+        view()->setFont(popupFont);
+    }
+
+    void showPopup() override
+    {
+        int popupWidth = width();
+        for (int i = 0; i < count(); ++i)
+            popupWidth = qMax(popupWidth,
+                view()->fontMetrics().horizontalAdvance(itemData(i, Qt::ToolTipRole).toString()) + 48);
+        auto *screen = QGuiApplication::screenAt(mapToGlobal(rect().center()));
+        if (!screen) screen = QGuiApplication::primaryScreen();
+        if (screen) popupWidth = qMin(popupWidth, screen->availableGeometry().width() - 24);
+        view()->setMinimumWidth(popupWidth);
+        QComboBox::showPopup();
+    }
+};
+}
 
 MetadataPanel::MetadataPanel(QWidget *parent)
     : QWidget(parent)
@@ -104,7 +154,7 @@ void MetadataPanel::setupUi()
     m_spinMinIntensity->setValue(1200);
     m_spinMinIntensity->setToolTip(QStringLiteral("过滤掉强度低于此值的噪声峰"));
     intensityForm->addRow(QStringLiteral("最低强度"), m_spinMinIntensity);
-    m_chkFilterFWHM = new QCheckBox(QStringLiteral("按半高宽面积过滤"), contentWidget);
+    m_chkFilterFWHM = new QCheckBox(QStringLiteral("按净峰积分面积过滤"), contentWidget);
     m_chkFilterFWHM->setChecked(true);
     filterLayout->addWidget(m_chkFilterFWHM);
     auto *areaForm = makeForm(filterLayout);
@@ -112,13 +162,13 @@ void MetadataPanel::setupUi()
     m_spinMinFWHM->setRange(0, 1e12);
     m_spinMinFWHM->setDecimals(4);
     m_spinMinFWHM->setValue(0.0001);
-    m_spinMinFWHM->setToolTip(QStringLiteral("最小半高宽面积"));
+    m_spinMinFWHM->setToolTip(QStringLiteral("最小净峰积分面积"));
     areaForm->addRow(QStringLiteral("最小面积"), m_spinMinFWHM);
     m_spinMaxFWHM = new QDoubleSpinBox(contentWidget);
     m_spinMaxFWHM->setRange(0, 1e12);
     m_spinMaxFWHM->setDecimals(4);
-    m_spinMaxFWHM->setValue(20000);
-    m_spinMaxFWHM->setToolTip(QStringLiteral("最大半高宽面积"));
+    m_spinMaxFWHM->setValue(1e12);
+    m_spinMaxFWHM->setToolTip(QStringLiteral("最大净峰积分面积"));
     areaForm->addRow(QStringLiteral("最大面积"), m_spinMaxFWHM);
     connect(m_chkFilterIntensity, &QCheckBox::toggled, m_spinMinIntensity, &QWidget::setEnabled);
     connect(m_chkFilterFWHM, &QCheckBox::toggled, m_spinMinFWHM, &QWidget::setEnabled);
@@ -129,7 +179,7 @@ void MetadataPanel::setupUi()
     m_lblPeakCount->setWordWrap(true);
     m_lblPeakCount->setProperty("role", "secondary");
     analysisLayout->addWidget(m_lblPeakCount);
-    m_cmbLine = new QComboBox(contentWidget);
+    m_cmbLine = new PeakComboBox(contentWidget);
     m_cmbLine->setMinimumWidth(0);
     m_cmbLine->setMinimumContentsLength(12);
     m_cmbLine->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -208,7 +258,7 @@ void MetadataPanel::setupUi()
         pageLayout->addStretch();
         tabs->addTab(page, name);
     };
-    addPage(QStringLiteral("峰值分析"), {analysisLayout, filterLayout});
+    addPage(QStringLiteral("峰值分析"), {filterLayout, analysisLayout});
     addPage(QStringLiteral("预处理"), {sgLayout, blLayout});
     addPage(QStringLiteral("文件信息"), {fileLayout});
     outerLayout->addWidget(tabs);
@@ -269,6 +319,8 @@ void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
 
     if (points.isEmpty()) {
         m_allPeaks.clear();
+        m_allResults.clear();
+        m_peakResults.clear();
         m_allComputedValues.clear();
         m_detectedPeaks.clear();
         m_cmbLine->clear();
@@ -281,6 +333,8 @@ void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
     // 检测所有峰
     m_allPeaks = SpectralAnalyzer::detectPeaks(points);
     if (m_allPeaks.isEmpty()) {
+        m_allResults.clear();
+        m_peakResults.clear();
         m_allComputedValues.clear();
         m_detectedPeaks.clear();
         m_cmbLine->clear();
@@ -290,11 +344,13 @@ void MetadataPanel::setSpectrumPoints(const QVector<QPointF> &points)
         return;
     }
 
-    // 预计算所有峰的半高宽面积
+    // 在任何面积/强度过滤之前联合分析，避免过滤改变重叠峰组分。
+    m_allResults = SpectralAnalyzer::analyzePeaks(points, m_allPeaks);
+    // 预计算所有峰的净峰积分面积
     m_allComputedValues.resize(m_allPeaks.size());
     m_allFwhmValues.resize(m_allPeaks.size());
     for (int i = 0; i < m_allPeaks.size(); ++i) {
-        auto result = SpectralAnalyzer::analyzePeak(points, m_allPeaks[i]);
+        const auto &result = m_allResults[i];
         m_allComputedValues[i] = result.computedValue;
         m_allFwhmValues[i] = result.fwhm;
     }
@@ -309,6 +365,7 @@ void MetadataPanel::applyFilter()
         m_detectedPeaks = m_allPeaks;
         m_peakComputedValues = m_allComputedValues;
         m_peakFwhmValues = m_allFwhmValues;
+        m_peakResults = m_allResults;
         updateComboBox();
         return;
     }
@@ -322,14 +379,16 @@ void MetadataPanel::applyFilter()
     m_detectedPeaks.clear();
     m_peakComputedValues.clear();
     m_peakFwhmValues.clear();
+    m_peakResults.clear();
     for (int i = 0; i < m_allPeaks.size(); ++i) {
         const auto &p = m_allPeaks[i];
         double v = m_allComputedValues[i];
         if (filterIntensity && p.intensity < minInt) continue;
-        if (filterFWHM && (v < minFWHM || v > maxFWHM)) continue;
+        if (filterFWHM && m_allResults[i].valid && (v < minFWHM || v > maxFWHM)) continue;
         m_detectedPeaks.append(p);
         m_peakComputedValues.append(v);
         m_peakFwhmValues.append(m_allFwhmValues[i]);
+        m_peakResults.append(m_allResults[i]);
     }
 
     updateComboBox();
@@ -341,12 +400,13 @@ void MetadataPanel::updateComboBox()
     m_cmbLine->clear();
     for (int i = 0; i < m_detectedPeaks.size(); ++i) {
         const auto &p = m_detectedPeaks[i];
-        QString text = QString("#%1  %2 nm  强度:%3  半高宽原始值:%4 nm  半高宽面积:%5")
+        QString text = QString("#%1  %2 nm  强度:%3  半高宽原始值:%4 nm  净峰积分面积:%5")
                            .arg(i + 1, 2)
                            .arg(p.wavelength, 8, 'f', 2)
                            .arg(p.intensity, 0, 'f', 0)
                            .arg(m_peakFwhmValues[i], 0, 'f', 4)
-                           .arg(m_peakComputedValues[i], 0, 'f', 4);
+                           .arg(m_peakResults[i].valid ? QString::number(m_peakComputedValues[i], 'f', 4) : QStringLiteral("不可用"));
+        text += QStringLiteral("  %1").arg(m_peakResults[i].areaStatus);
         m_cmbLine->addItem(QStringLiteral("#%1  ·  %2 nm").arg(i + 1).arg(p.wavelength, 0, 'f', 2), i);
         m_cmbLine->setItemData(i, text, Qt::ToolTipRole);
     }
@@ -363,6 +423,9 @@ void MetadataPanel::updateComboBox()
                                     .arg(m_detectedPeaks.size()));
     }
 
+    int invalidCount = 0;
+    for (const auto &r : m_peakResults) if (!r.valid) ++invalidCount;
+    if (invalidCount) m_lblPeakCount->setText(m_lblPeakCount->text() + QStringLiteral("；%1 个面积不可用").arg(invalidCount));
     emit filterChanged();
 }
 
@@ -374,10 +437,13 @@ void MetadataPanel::updatePeakDetails(int index)
         return;
     }
     m_cmbLine->setToolTip(m_cmbLine->itemData(index, Qt::ToolTipRole).toString());
-    m_lblPeakDetails->setText(QStringLiteral("强度  %1\n半高宽  %2 nm\n半高宽面积  %3")
+    const auto &result = m_peakResults[index];
+    const QString area = result.valid ? QString::number(result.computedValue, 'f', 4) : QStringLiteral("不可用");
+    m_lblPeakDetails->setText(QStringLiteral("强度  %1\n半高宽  %2 nm\n净峰积分面积  %3\n积分区间  %4 – %5 nm\n%6")
         .arg(m_detectedPeaks[index].intensity, 0, 'f', 2)
         .arg(m_peakFwhmValues[index], 0, 'f', 4)
-        .arg(m_peakComputedValues[index], 0, 'f', 4));
+        .arg(area).arg(result.integrationLeft, 0, 'f', 3)
+        .arg(result.integrationRight, 0, 'f', 3).arg(result.areaStatus));
 }
 
 void MetadataPanel::setMetadata(const SpectrumMetadata &meta,
@@ -410,6 +476,8 @@ void MetadataPanel::clear()
     m_lblTriggerDelay->setText("-");
 
     m_allPeaks.clear();
+    m_allResults.clear();
+    m_peakResults.clear();
     m_allComputedValues.clear();
     m_allFwhmValues.clear();
     m_detectedPeaks.clear();

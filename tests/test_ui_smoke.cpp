@@ -61,7 +61,19 @@ int main(int argc, char **argv)
         }
     }
     auto *combo = metadata->findChild<QComboBox *>();
-    if (!combo || !metadata->findChild<QLabel *>("peakDetails")->text().contains(QStringLiteral("半高宽面积"))) return 6;
+    if (!combo || !metadata->findChild<QLabel *>("peakDetails")->text().contains(QStringLiteral("净峰积分面积"))) return 6;
+    const auto allCandidates=SpectralAnalyzer::detectPeaks(data.points);
+    const auto expectedAreas=SpectralAnalyzer::analyzePeaks(data.points, allCandidates);
+    if(!metadata->findChild<QLabel *>("peakDetails")->text().contains(QString::number(expectedAreas[0].computedValue,'f',4))) return 10;
+    for(auto *spin:metadata->findChildren<QDoubleSpinBox *>()) {
+        if(spin->toolTip()==QStringLiteral("过滤掉强度低于此值的噪声峰")) {
+            const double before=spin->value();
+            spin->setValue(5000);
+            if(metadata->detectedPeaks().size()!=1) return 11;
+            if(!metadata->findChild<QLabel *>("peakDetails")->text().contains(QString::number(expectedAreas[0].computedValue,'f',4))) return 12;
+            spin->setValue(before);
+        }
+    }
     app.processEvents();
     if (!output.isEmpty()) window.grab().save(output + "/interface-preview.png");
     auto *tabs = metadata->findChild<QTabWidget *>();

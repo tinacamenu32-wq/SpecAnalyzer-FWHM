@@ -40,6 +40,7 @@ set(SOURCES
     src/MetadataPanel.cpp
     src/FileScanner.cpp
     src/SpectralAnalyzer.cpp
+    src/PeakIntegration.cpp
 )
 
 set(HEADERS
@@ -91,6 +92,10 @@ if(BUILD_TESTING)
     target_include_directories(test_csv_export PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(test_csv_export PRIVATE Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME csv_export_encoding COMMAND test_csv_export)
+    add_executable(test_peak_integration tests/test_peak_integration.cpp src/SpectralAnalyzer.cpp src/PeakIntegration.cpp)
+    target_include_directories(test_peak_integration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(test_peak_integration PRIVATE Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME peak_integration COMMAND test_peak_integration)
     add_executable(test_ui_smoke tests/test_ui_smoke.cpp ${TEST_SOURCES} ${HEADERS})
     target_include_directories(test_ui_smoke PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(test_ui_smoke PRIVATE
